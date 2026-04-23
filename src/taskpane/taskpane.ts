@@ -1,5 +1,5 @@
 import "./styles.css";
-import { runAgentStream, AgentEvent } from "../anthropic/agentLoop";
+import { runAgent, AgentEvent } from "../anthropic/agentLoop";
 import {
   getActiveProvider,
   loadConfig,
@@ -178,7 +178,7 @@ async function onSend() {
   let assistantText = "";
 
   try {
-    const updated = await runAgentStream(fullMessage, history, {
+    const updated = await runAgent(fullMessage, history, {
       tools: TOOL_DEFINITIONS,
       handlers: TOOL_HANDLERS,
       modelOverride: modelOverride || undefined,

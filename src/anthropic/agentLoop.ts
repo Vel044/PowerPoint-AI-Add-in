@@ -38,7 +38,7 @@ export async function runAgent(
   const max = options.maxIterations ?? 10;
   const emit = options.onEvent ?? (() => {});
   const messages: Message[] = [...history, { role: "user", content: userMessage }];
-  const toolCtx: ToolContext = { log: (m) => emit({ type: "text", text: m }) };
+  const toolCtx: ToolContext = { log: (m: string) => { console.log(m); emit({ type: "text", text: m }); } };
 
   for (let i = 0; i < max; i++) {
     let res: MessagesResponse;
@@ -111,7 +111,7 @@ export async function runAgentStream(
   const max = options.maxIterations ?? 10;
   const emit = options.onEvent ?? (() => {});
   const messages: Message[] = [...history, { role: "user", content: userMessage }];
-  const toolCtx: ToolContext = { log: (m) => emit({ type: "text", text: m }) };
+  const toolCtx: ToolContext = { log: (m: string) => { console.log(m); emit({ type: "text", text: m }); } };
 
   for (let i = 0; i < max; i++) {
     let textBuffer = "";
@@ -138,12 +138,17 @@ export async function runAgentStream(
             };
             emit({ type: "tool_call", toolName: ev.toolName, toolInput: ev.toolInput });
           } else if (ev.type === "done") {
+            console.log("[Agent] 流收到 done 事件");
             resolve();
           } else if (ev.type === "error") {
+            console.log(`[Agent] 流收到 error 事件: ${ev.error}`);
             reject(new Error(ev.error));
           }
         }
-      ).catch(reject);
+      ).catch((err) => {
+        console.log(`[Agent] callMessagesStream 异常: ${err}`);
+        reject(err);
+      });
     });
 
     await streamPromise;

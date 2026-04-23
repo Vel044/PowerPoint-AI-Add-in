@@ -56,6 +56,8 @@ export async function callMessagesStream(
   const token = provider.env.ANTHROPIC_AUTH_TOKEN;
   if (!token) throw new Error("当前 Provider 未配置 ANTHROPIC_AUTH_TOKEN");
 
+  console.log(`[Claude] 发起请求: ${url} model=${model} msgs=${req.messages.length} tools=${!!req.tools}`);
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "anthropic-version": "2023-06-01",
@@ -76,16 +78,28 @@ export async function callMessagesStream(
   const timeout = setTimeout(() => controller.abort(), getTimeoutMs(provider));
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    console.log(`[Claude] 开始 fetch: ${url}`);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (fetchErr) {
+      console.log(`[Claude] fetch 抛出异常: ${fetchErr}`);
+      throw fetchErr;
+    }
+    console.log(`[Claude] fetch 完成, 状态: ${res.status} ${res.statusText}`);
+
     if (!res.ok) {
       const text = await res.text();
+      console.log(`[Claude] API 错误响应: ${text.slice(0, 500)}`);
       throw new Error(`API ${res.status}: ${text.slice(0, 500)}`);
     }
+
+    console.log(`[Claude] fetch 响应 ok，准备获取 reader`);
 
     const reader = (res.body as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
@@ -117,14 +131,16 @@ export async function callMessagesStream(
             } else if (event.type === "message_delta" && event.delta.stop_reason) {
               onEvent({ type: "done" });
             } else if (event.type === "error") {
+              console.log(`[Claude] 流内错误: ${event.error}`);
               onEvent({ type: "error", error: event.error });
             }
-          } catch {
-            // ignore parse errors
+          } catch (err) {
+            console.log(`[Claude] 解析行失败: ${line.slice(0, 100)} ${err}`);
           }
         }
       }
     }
+    console.log("[Claude] 流结束，未收到 message_delta stop_reason");
     onEvent({ type: "done" });
   } finally {
     clearTimeout(timeout);

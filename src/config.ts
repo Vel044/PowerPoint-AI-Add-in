@@ -37,14 +37,25 @@ export async function loadConfig(url = DEFAULT_URL): Promise<ProvidersConfig> {
     }
   }
 
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(
-      `无法加载配置文件 ${url} (HTTP ${res.status})。请将 config/providers.example.json 复制为 providers.json 并填入 API Key。`
-    );
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(
+          `无法加载配置文件 ${url} (HTTP ${res.status})。请将 config/providers.example.json 复制为 providers.json 并填入 API Key。`
+        );
+      }
+      cached = (await res.json()) as ProvidersConfig;
+      return cached;
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
   }
-  cached = (await res.json()) as ProvidersConfig;
-  return cached;
+  throw lastError;
 }
 
 export function saveConfig(config: ProvidersConfig): void {
