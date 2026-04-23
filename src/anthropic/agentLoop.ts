@@ -26,19 +26,55 @@ const DEFAULT_SYSTEM = `你是一个嵌入在 PowerPoint 右侧任务窗格中�
 规则：
 1. 回答使用简体中文。
 2. 在执行任何修改操作前，先调用 get_current_context 了解用户当前处于哪张幻灯片、选中了什么。
-3. 修改完成后用一句话告诉用户做了什么。
-4. 如果涉及底层 XML 级别的操作（如改 theme、master、复杂动画），使用 export_pptx_xml 导出查看，用 apply_pptx_patch 产出新文件让用户另存。
-5. 优先使用 Office.js 级工具（add_slide / modify_shape 等）做实时编辑，体验最流畅。`;
+3. 画流程图/调用链/架构图/逻辑框图等"图"时，**首选 create_diagram**（一次传入节点和连线的抽象描述，内部自动布局、节点不重叠、箭头自动贴边中点）。只有修改现有图、或往已有图上增删节点时，才用 add_geometric_shape + connect_shapes 组合。
+4. **禁止用 add_line 画"箭头"**——add_line 是裸线没有箭头头，只能表示"无方向连接"。需要方向就用 connect_shapes（正交方向会自动渲染成带箭头的几何形状）或 create_diagram。也禁止只用一堆 add_text_box 堆砌伪缩进，那不是图。文本框只用来放标题或长段说明。
+5. **不要自己手算坐标去连两个形状**——用 connect_shapes(fromShapeId, fromSide, toShapeId, toSide) 让工具算边中点。你只需要想清楚"A 的哪条边连到 B 的哪条边"。
+6. 节点统一尺寸、同类节点 shape 保持一致：过程用 rectangle、判断用 diamond、起止用 flowChartTerminator、数据用 flowChartData。
+7. 所有修改操作做完后，必须再生成一段纯文本回复（不再调用工具），用 2-4 句话总结你刚画了什么、用户可以怎么调整。
+8. 可以多轮调用工具，但完成后一定主动停下来写总结，而不是无意义地继续调用。
+9. 涉及底层 XML 操作（改 theme、master、复杂动画）时用 export_pptx_xml 导出查看、用 apply_pptx_patch 产出新文件。
+
+## 画图示例（正样本）
+
+用户："画一个登录流程图"。正确做法是**一次 create_diagram 调用**：
+
+\`\`\`
+create_diagram({
+  layout: "vertical",
+  nodes: [
+    {id:"n1", text:"开始", shape:"flowChartTerminator"},
+    {id:"n2", text:"输入用户名/密码", shape:"rectangle"},
+    {id:"n3", text:"验证通过？", shape:"diamond"},
+    {id:"n4", text:"进入首页", shape:"rectangle"},
+    {id:"n5", text:"提示错误", shape:"rectangle"},
+    {id:"n6", text:"结束", shape:"flowChartTerminator"}
+  ],
+  edges: [
+    {from:"n1", to:"n2"}, {from:"n2", to:"n3"},
+    {from:"n3", to:"n4"}, {from:"n3", to:"n5"},
+    {from:"n4", to:"n6"}, {from:"n5", to:"n6"}
+  ]
+})
+\`\`\`
+
+分层架构图/调用链用 layout:"layered" 并给每个节点指定 level（0 为最顶层）。树状展开用 layout:"tree"，工具会按 edges 自动推断父子层级。`;
 
 export async function runAgent(
   userMessage: string,
   history: Message[],
   options: AgentOptions
 ): Promise<Message[]> {
-  const max = options.maxIterations ?? 10;
+  const max = options.maxIterations ?? 50;
   const emit = options.onEvent ?? (() => {});
   const messages: Message[] = [...history, { role: "user", content: userMessage }];
-  const toolCtx: ToolContext = { log: (m: string) => { console.log(m); emit({ type: "text", text: m }); } };
+  const logToTerminal = (level: string, msg: string) => {
+    fetch("http://localhost:3001/__terminal-log", {
+      method: "POST",
+      body: JSON.stringify({ level, msg }),
+      headers: { "Content-Type": "application/json" }
+    }).catch(() => {});
+  };
+  const toolCtx: ToolContext = { log: (m: string) => { logToTerminal("info", m); emit({ type: "text", text: m }); } };
 
   for (let i = 0; i < max; i++) {
     let res: MessagesResponse;
@@ -108,10 +144,17 @@ export async function runAgentStream(
   history: Message[],
   options: AgentOptions
 ): Promise<Message[]> {
-  const max = options.maxIterations ?? 10;
+  const max = options.maxIterations ?? 50;
   const emit = options.onEvent ?? (() => {});
   const messages: Message[] = [...history, { role: "user", content: userMessage }];
-  const toolCtx: ToolContext = { log: (m: string) => { console.log(m); emit({ type: "text", text: m }); } };
+  const logToTerminal = (level: string, msg: string) => {
+    fetch("http://localhost:3001/__terminal-log", {
+      method: "POST",
+      body: JSON.stringify({ level, msg }),
+      headers: { "Content-Type": "application/json" }
+    }).catch(() => {});
+  };
+  const toolCtx: ToolContext = { log: (m: string) => { logToTerminal("info", m); emit({ type: "text", text: m }); } };
 
   for (let i = 0; i < max; i++) {
     let textBuffer = "";
@@ -138,15 +181,15 @@ export async function runAgentStream(
             };
             emit({ type: "tool_call", toolName: ev.toolName, toolInput: ev.toolInput });
           } else if (ev.type === "done") {
-            console.log("[Agent] 流收到 done 事件");
+            logToTerminal("info", "[Agent] 流收到 done 事件");
             resolve();
           } else if (ev.type === "error") {
-            console.log(`[Agent] 流收到 error 事件: ${ev.error}`);
+            logToTerminal("error", `[Agent] 流收到 error 事件: ${ev.error}`);
             reject(new Error(ev.error));
           }
         }
       ).catch((err) => {
-        console.log(`[Agent] callMessagesStream 异常: ${err}`);
+        logToTerminal("error", `[Agent] callMessagesStream 异常: ${err}`);
         reject(err);
       });
     });

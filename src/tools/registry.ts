@@ -1,7 +1,8 @@
 import { ToolDefinition, ToolHandler } from "../types";
 import { getCurrentContext, listSlides } from "./context";
 import { addSlide, deleteSlide } from "./slides";
-import { addTextBox, deleteShape, modifyShape } from "./shapes";
+import { addGeometricShape, addLine, addTextBox, connectShapes, deleteShape, modifyShape } from "./shapes";
+import { createDiagram } from "./layout";
 import { applyPptxPatch, exportPptxXml } from "./ooxml";
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -46,6 +47,104 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         height: { type: "number" }
       },
       required: ["text"]
+    }
+  },
+  {
+    name: "add_geometric_shape",
+    description: "在幻灯片上添加一个几何形状（矩形/圆角矩形/椭圆/菱形等），可以带文字。画逻辑/流程/调用链图时优先用这个工具做节点，而不是纯文本框。shapeType 支持：rectangle、roundRectangle、ellipse、diamond、triangle、rightTriangle、parallelogram、trapezoid、pentagon、hexagon、octagon、plus、rightArrow、leftArrow、upArrow、downArrow、star5、flowChartProcess、flowChartDecision、flowChartTerminator、flowChartData 等 Office GeometricShapeType 枚举值。",
+    input_schema: {
+      type: "object",
+      properties: {
+        shapeType: { type: "string", description: "几何形状类型，见 description" },
+        text: { type: "string", description: "形状内显示的文字（可选）" },
+        slideId: { type: "string" },
+        slideIndex: { type: "number" },
+        left: { type: "number" },
+        top: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" }
+      },
+      required: ["shapeType"]
+    }
+  },
+  {
+    name: "add_line",
+    description: "在幻灯片上添加一条线/箭头连接线，用来连接两个形状表达调用/数据流向。lineType 支持：straight、elbow、curved。坐标以 (left, top) 为起点，(left+width, top+height) 为终点。",
+    input_schema: {
+      type: "object",
+      properties: {
+        lineType: { type: "string", description: "straight / elbow / curved" },
+        slideId: { type: "string" },
+        slideIndex: { type: "number" },
+        left: { type: "number", description: "起点 X" },
+        top: { type: "number", description: "起点 Y" },
+        width: { type: "number", description: "终点相对起点的 X 偏移（可为负）" },
+        height: { type: "number", description: "终点相对起点的 Y 偏移（可为负）" }
+      },
+      required: ["lineType"]
+    }
+  },
+  {
+    name: "connect_shapes",
+    description: "按形状 id 将两个现有形状的某条边中点用带箭头的连接线连起来。AI 不再自己算坐标。fromSide/toSide 指定连接哪一侧（top/bottom/left/right）。正交方向（横/竖）会自动用 rightArrow/leftArrow/upArrow/downArrow 几何形状生成带箭头的连线；斜向则退化为无头 elbow 线。arrow 默认 'end'。画完图后加新连接、或改现有图时用这个工具，不要再用 add_line 画裸线。",
+    input_schema: {
+      type: "object",
+      properties: {
+        fromShapeId: { type: "string", description: "起点形状 id" },
+        fromSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "从哪一条边中点出发" },
+        toShapeId: { type: "string", description: "终点形状 id" },
+        toSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "连到哪一条边中点" },
+        arrow: { type: "string", enum: ["none", "end", "both"], description: "箭头方向，默认 end" },
+        slideId: { type: "string" },
+        slideIndex: { type: "number" }
+      },
+      required: ["fromShapeId", "fromSide", "toShapeId", "toSide"]
+    }
+  },
+  {
+    name: "create_diagram",
+    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点、连带箭头的连线。这是画图的首选工具 —— 不要自己逐个调用 add_geometric_shape + add_line 堆砌。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层，若节点带 level 则用之，否则按 edges 自动推断)/tree(按 edges 从根向下)。节点统一尺寸 160x60。返回每个节点的 shapeId 映射，可用于后续 modify_shape 微调。",
+    input_schema: {
+      type: "object",
+      properties: {
+        layout: { type: "string", enum: ["vertical", "horizontal", "layered", "tree"] },
+        nodes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "节点临时 id，用于 edges 引用" },
+              text: { type: "string", description: "节点内显示文字" },
+              shape: { type: "string", description: "几何形状类型，如 rectangle/roundRectangle/diamond/ellipse/flowChartTerminator/flowChartProcess/flowChartDecision，默认 rectangle" },
+              level: { type: "number", description: "layered 布局时的层级，0 为顶层" }
+            },
+            required: ["id", "text"]
+          }
+        },
+        edges: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              from: { type: "string" },
+              to: { type: "string" },
+              arrow: { type: "string", enum: ["none", "end", "both"], description: "箭头方向，默认 end" }
+            },
+            required: ["from", "to"]
+          }
+        },
+        canvas: {
+          type: "object",
+          description: "画布区域，默认 {left:40, top:80, width:880, height:420}",
+          properties: {
+            left: { type: "number" }, top: { type: "number" },
+            width: { type: "number" }, height: { type: "number" }
+          }
+        },
+        slideId: { type: "string" },
+        slideIndex: { type: "number" }
+      },
+      required: ["layout", "nodes", "edges"]
     }
   },
   {
@@ -114,6 +213,10 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   add_slide: addSlide,
   delete_slide: deleteSlide,
   add_text_box: addTextBox,
+  add_geometric_shape: addGeometricShape,
+  add_line: addLine,
+  connect_shapes: connectShapes,
+  create_diagram: createDiagram,
   modify_shape: modifyShape,
   delete_shape: deleteShape,
   export_pptx_xml: exportPptxXml,
