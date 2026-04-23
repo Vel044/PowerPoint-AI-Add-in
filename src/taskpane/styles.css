@@ -1,0 +1,37 @@
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #f6f7f9; color: #222; font-size: 13px; }
+#app { display: flex; flex-direction: column; }
+
+.bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #5c6bc0; color: #fff; }
+.bar .title { font-weight: 600; }
+.icon-btn { background: transparent; border: none; color: inherit; font-size: 16px; cursor: pointer; padding: 4px 8px; }
+.icon-btn:hover { background: rgba(255,255,255,0.15); border-radius: 4px; }
+
+.panel { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.panel.hidden { display: none; }
+.panel h3 { margin: 0 0 4px; font-size: 13px; }
+.panel label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #555; }
+.panel input, .panel select { padding: 6px 8px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; }
+.panel .row { display: flex; gap: 8px; margin-top: 4px; }
+.panel button { flex: 1; padding: 6px 10px; background: #5c6bc0; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+.panel button.secondary { background: #eee; color: #333; }
+
+.ctx { padding: 6px 12px; background: #eef1fa; border-bottom: 1px solid #dce1f0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #3b4898; }
+
+.messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 95%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.msg.user { align-self: flex-end; background: #dbe4ff; }
+.msg.assistant { align-self: flex-start; background: #fff; border: 1px solid #e5e7eb; }
+.msg.tool { align-self: flex-start; background: #f5f5f5; border: 1px dashed #c0c4cc; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #555; }
+.msg.error { align-self: flex-start; background: #fdecea; color: #b71c1c; border: 1px solid #f5c2c0; }
+.msg .meta { font-size: 10px; color: #888; margin-bottom: 2px; }
+.msg .preview { cursor: pointer; color: #666; }
+.msg .preview:hover { color: #333; }
+.msg.collapsible { border-left: 3px solid #5c6bc0; }
+.msg.expanded.collapsible { border-left-color: #4caf50; }
+
+.input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #e0e0e0; background: #fff; }
+.input textarea { flex: 1; resize: none; border: 1px solid #d0d0d0; border-radius: 6px; padding: 6px 8px; font: inherit; }
+.input button { padding: 0 14px; background: #5c6bc0; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+.input button:disabled { background: #aaa; cursor: not-allowed; }

@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude for Office</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #5c6bc0;
+        }
+
+        .logo img {
+            width: 32px;
+            height: 32px;
+        }
+
+        .config-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .config-panel h3 {
+            margin-bottom: 15px;
+            color: #444;
+        }
+
+        .config-item {
+            margin-bottom: 15px;
+        }
+
+        .config-item label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .config-item input, .config-item select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .config-item input:focus, .config-item select:focus {
+            outline: none;
+            border-color: #5c6bc0;
+        }
+
+        .config-item.auth-type {
+            display: flex;
+            gap: 10px;
+        }
+
+        .config-item.auth-type label {
+            margin-bottom: 0;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+
+        .chat-container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            height: calc(100vh - 200px);
+        }
+
+        .sidebar {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-y: auto;
+        }
+
+        .chat-area {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 250px);
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: #5c6bc0;
+        }
+
+        .message.assistant .message-avatar {
+            background: #4caf50;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            line-height: 1.5;
+        }
+
+        .message.user .message-content {
+            background: #e3f2fd;
+            color: #1976d2;
+            text-align: right;
+        }
+
+        .message.assistant .message-content {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .message.assistant.thinking .message-content::after {
+            content: "...";
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: "."; }
+            40% { content: ".."; }
+            60%, 100% { content: "..."; }
+        }
+
+        .chat-input {
+            padding: 20px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 24px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .chat-input input:focus {
+            border-color: #5c6bc0;
+        }
+
+        .chat-input button {
+            padding: 12px 24px;
+            background: #5c6bc0;
+            color: white;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.3s;
+        }
+
+        .chat-input button:hover {
+            background: #3f51b5;
+        }
+
+        .chat-input button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .sidebar h3 {
+            margin-bottom: 15px;
+            color: #444;
+        }
+
+        .chat-history {
+            list-style: none;
+        }
+
+        .chat-history li {
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .chat-history li:hover {
+            background: #f0f0f0;
+        }
+
+        .chat-history li.active {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .chat-history li .date {
+            font-size: 12px;
+            color: #999;
+            margin-top: 2px;
+        }
+
+        .status-bar {
+            padding: 10px 20px;
+            background: #f5f5f5;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-header {
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            margin-bottom: 10px;
+        }
+
+        .modal-buttons {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-buttons button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .modal-buttons button.primary {
+            background: #5c6bc0;
+            color: white;
+        }
+
+        .modal-buttons button.secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+                <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%235c6bc0' d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z'/%3E%3C/svg%3E" alt="Claude">
+                Claude for Office
+            </div>
+            <button onclick="showConfig()">配置</button>
+        </div>
+
+        <div id="configPanel" class="config-panel" style="display: none;">
+            <h3>API 配置</h3>
+            <div class="config-item">
+                <label>API 端点</label>
+                <input type="text" id="apiUrl" value="https://api.z.ai/api/anthropic" placeholder="https://api.z.ai/api/anthropic">
+            </div>
+            <div class="config-item">
+                <label>模型</label>
+                <select id="modelSelect">
+                    <option value="claude-sonnet-4.5">Claude Sonnet 4.5</option>
+                    <option value="claude-opus-4.5">Claude Opus 4.5</option>
+                    <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
+                </select>
+            </div>
+            <div class="config-item">
+                <label>认证方式</label>
+                <div class="config-item auth-type">
+                    <label>
+                        <input type="radio" name="authType" value="x-api-key" checked>
+                        X-API-Key
+                    </label>
+                    <label>
+                        <input type="radio" name="authType" value="bearer">
+                        Bearer Token
+                    </label>
+                </div>
+            </div>
+            <div class="config-item">
+                <label>API Key</label>
+                <input type="password" id="apiKey" value="c25b5262486d412699b1da3c56564d9a.IF1NbOmtG11oAxvC" placeholder="输入 API Key">
+            </div>
+            <div class="config-item">
+                <button onclick="saveConfig()" style="background: #5c6bc0; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">保存配置</button>
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <div class="sidebar">
+                <h3>聊天历史</h3>
+                <ul class="chat-history" id="chatHistory">
+                    <li class="active" data-id="new">
+                        <div>新对话</div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="chat-area">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant">
+                        <div class="message-avatar">C</div>
+                        <div class="message-content">
+                            您好！我是 Claude，很高兴为您服务。请输入您的问题。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input">
+                    <input type="text" id="messageInput" placeholder="输入消息..." onkeypress="handleKeyPress(event)">
+                    <button onclick="sendMessage()" id="sendButton">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-indicator">
+            <div class="status-dot"></div>
+            <span>已连接</span>
+        </div>
+        <div id="statusText">就绪</div>
+    </div>
+
+    <!-- 配置模态框 -->
+    <div id="configModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>高级配置</h2>
+                <p>配置您的 Claude API 设置</p>
+            </div>
+
+            <div class="config-item">
+                <label>API 端点</label>
+                <input type="text" id="modalApiUrl" placeholder="https://api.z.ai/api/anthropic">
+            </div>
+
+            <div class="config-item">
+                <label>模型</label>
+                <select id="modalModelSelect">
+                    <option value="claude-sonnet-4.5">Claude Sonnet 4.5</option>
+                    <option value="claude-opus-4.5">Claude Opus 4.5</option>
+                    <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
+                </select>
+            </div>
+
+            <div class="config-item">
+                <label>认证方式</label>
+                <div class="config-item auth-type">
+                    <label>
+                        <input type="radio" name="modalAuthType" value="x-api-key" checked>
+                        X-API-Key
+                    </label>
+                    <label>
+                        <input type="radio" name="modalAuthType" value="bearer">
+                        Bearer Token
+                    </label>
+                </div>
+            </div>
+
+            <div class="config-item">
+                <label>API Key</label>
+                <input type="password" id="modalApiKey" placeholder="输入 API Key">
+            </div>
+
+            <div class="config-item">
+                <label>超时时间（秒）</label>
+                <input type="number" id="timeout" value="30" min="5" max="300">
+            </div>
+
+            <div class="modal-buttons">
+                <button class="secondary" onclick="hideConfig()">取消</button>
+                <button class="primary" onclick="saveConfigModal()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 配置管理
+        let config = {
+            apiUrl: 'https://api.z.ai/api/anthropic',
+            model: 'claude-sonnet-4.5',
+            authType: 'x-api-key',
+            apiKey: 'c25b5262486d412699b1da3c56564d9a.IF1NbOmtG11oAxvC',
+            timeout: 30
+        };
+
+        // 从 localStorage 加载配置
+        function loadConfig() {
+            const saved = localStorage.getItem('claude-config');
+            if (saved) {
+                config = { ...config, ...JSON.parse(saved) };
+                updateConfigUI();
+            }
+        }
+
+        // 保存配置
+        function saveConfig() {
+            config.apiUrl = document.getElementById('apiUrl').value;
+            config.model = document.getElementById('modelSelect').value;
+            config.authType = document.querySelector('input[name="authType"]:checked').value;
+            config.apiKey = document.getElementById('apiKey').value;
+
+            localStorage.setItem('claude-config', JSON.stringify(config));
+            updateConfigUI();
+            hideConfigPanel();
+        }
+
+        // 保存配置（模态框）
+        function saveConfigModal() {
+            document.getElementById('modalApiUrl').value = document.getElementById('apiUrl').value;
+            document.getElementById('modalModelSelect').value = document.getElementById('modelSelect').value;
+            document.querySelector('input[name="modalAuthType"]:checked').value = config.authType;
+            document.getElementById('modalApiKey').value = config.apiKey;
+            document.getElementById('timeout').value = config.timeout;
+
+            saveConfig();
+            hideConfigModal();
+        }
+
+        // 更新配置 UI
+        function updateConfigUI() {
+            document.getElementById('apiUrl').value = config.apiUrl;
+            document.getElementById('modelSelect').value = config.model;
+            document.querySelector('input[name="authType"][value="' + config.authType + '"]').checked = true;
+            document.getElementById('apiKey').value = config.apiKey;
+        }
+
+        // 显示/隐藏配置面板
+        function showConfig() {
+            document.getElementById('configPanel').style.display = 'block';
+        }
+
+        function hideConfigPanel() {
+            document.getElementById('configPanel').style.display = 'none';
+        }
+
+        // 显示/隐藏配置模态框
+        function showConfig() {
+            document.getElementById('configModal').classList.add('show');
+        }
+
+        function hideConfig() {
+            document.getElementById('configModal').classList.remove('show');
+        }
+
+        // 聊天历史管理
+        let chatHistory = [];
+        let currentChat = 'new';
+        let messageCounter = 0;
+
+        function addChatToHistory(chatId, title) {
+            const history = document.getElementById('chatHistory');
+            const li = document.createElement('li');
+            li.setAttribute('data-id', chatId);
+            li.innerHTML = `
+                <div>${title}</div>
+                <div class="date">${new Date().toLocaleString()}</div>
+            `;
+            li.onclick = () => loadChat(chatId);
+            history.appendChild(li);
+        }
+
+        function loadChat(chatId) {
+            // 实现加载历史对话的逻辑
+            console.log('Loading chat:', chatId);
+        }
+
+        // 消息发送
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+
+            if (!message) return;
+
+            // 添加用户消息
+            addMessage('user', message);
+            input.value = '';
+
+            // 显示思考中状态
+            const thinkingDiv = addMessage('assistant', '', true);
+            thinkingDiv.classList.add('thinking');
+
+            // 禁用发送按钮
+            document.getElementById('sendButton').disabled = true;
+            updateStatus('思考中...');
+
+            try {
+                // 构建请求
+                const headers = {
+                    'Content-Type': 'application/json',
+                };
+
+                if (config.authType === 'x-api-key') {
+                    headers['x-api-key'] = config.apiKey;
+                } else {
+                    headers['Authorization'] = `Bearer ${config.apiKey}`;
+                }
+
+                const response = await fetch(`${config.apiUrl}/v1/messages`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        model: config.model,
+                        max_tokens: 4000,
+                        messages: [
+                            { role: 'user', content: message }
+                        ]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const content = data.content[0].text;
+
+                // 移除思考中状态，添加回复
+                const messages = document.querySelectorAll('.message.assistant');
+                const lastMessage = messages[messages.length - 1];
+                lastMessage.classList.remove('thinking');
+                lastMessage.querySelector('.message-content').textContent = content;
+
+                updateStatus('就绪');
+
+                // 保存到历史
+                messageCounter++;
+                addChatToHistory(messageCounter, `对话 ${messageCounter}`);
+
+            } catch (error) {
+                console.error('Error:', error);
+                // 显示错误消息
+                const messages = document.querySelectorAll('.message.assistant');
+                const lastMessage = messages[messages.length - 1];
+                lastMessage.classList.remove('thinking');
+                lastMessage.querySelector('.message-content').textContent = `错误: ${error.message}`;
+                updateStatus('连接失败');
+            } finally {
+                document.getElementById('sendButton').disabled = false;
+            }
+        }
+
+        // 添加消息到聊天界面
+        function addMessage(role, content, isThinking = false) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = role === 'user' ? 'U' : 'C';
+
+            const messageContent = document.createElement('div');
+            messageContent.className = 'message-content';
+            messageContent.textContent = content || '';
+
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(messageContent);
+            messagesContainer.appendChild(messageDiv);
+
+            // 滚动到底部
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            return messageDiv;
+        }
+
+        // 处理回车键
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // 更新状态栏
+        function updateStatus(status) {
+            document.getElementById('statusText').textContent = status;
+        }
+
+        // 初始化
+        loadConfig();
+    </script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PowerPoint AI Add-in</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header class="bar">
+      <div class="title">PowerPoint AI Add-in</div>
+      <button id="btn-config" class="icon-btn" title="配置">⚙</button>
+    </header>
+
+    <section id="config-panel" class="panel hidden">
+      <h3>Provider 配置</h3>
+      <label>当前 Provider
+        <select id="provider-select"></select>
+      </label>
+      <label>API Key
+        <input type="password" id="provider-key" placeholder="ANTHROPIC_AUTH_TOKEN" />
+      </label>
+      <label>Base URL
+        <input type="text" id="provider-url" />
+      </label>
+      <label>模型覆盖（可空，留空用默认 sonnet）
+        <input type="text" id="model-override" placeholder="如 glm-4.7 / MiniMax-M2.7" />
+      </label>
+      <div class="row">
+        <button id="btn-save-config">保存</button>
+        <button id="btn-reset-config" class="secondary">重置为文件</button>
+      </div>
+    </section>
+
+    <section id="context-bar" class="ctx">
+      <span id="ctx-text">未连接 PowerPoint</span>
+      <button id="btn-refresh-ctx" class="icon-btn" title="刷新上下文">⟳</button>
+    </section>
+
+    <section id="messages" class="messages"></section>
+
+    <footer class="input">
+      <textarea id=”input” placeholder=”例如：把选中的形状文字改成”Hello”” rows=”2”></textarea>
+      <button id="btn-send">发送</button>
+    </footer>
+  </div>
+</body>
+</html>
