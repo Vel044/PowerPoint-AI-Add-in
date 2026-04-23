@@ -8,8 +8,8 @@ export type Side = "top" | "bottom" | "left" | "right";
 
 export interface Rect { left: number; top: number; width: number; height: number; }
 
-const ARROW_THICKNESS = 14;
-const LINE_THICKNESS = 3;
+const LINE_COLOR = "#333333";
+const LINE_WEIGHT = 1.5;
 
 interface DiagramNode {
   id: string;
@@ -76,6 +76,191 @@ function assignLevelsFromEdges(nodes: DiagramNode[], edges: DiagramEdge[]): Map<
   return levels;
 }
 
+const MIN_GAP = 20;
+
+function resolveOverlaps(ids: string[], placed: Map<string, Placed>, nw: number): void {
+  const sorted = [...ids].sort((a, b) => placed.get(a)!.left - placed.get(b)!.left);
+  for (let j = 1; j < sorted.length; j++) {
+    const prev = placed.get(sorted[j - 1])!;
+    const curr = placed.get(sorted[j])!;
+    const minLeft = prev.left + nw + MIN_GAP;
+    if (curr.left < minLeft) {
+      const shift = minLeft - curr.left;
+      for (let k = j; k < sorted.length; k++) {
+        placed.get(sorted[k])!.left += shift;
+      }
+    }
+  }
+}
+
+function centerOnCanvas(ids: string[], placed: Map<string, Placed>, canvas: Canvas, nw: number): void {
+  if (ids.length === 0) return;
+  const sorted = [...ids].sort((a, b) => placed.get(a)!.left - placed.get(b)!.left);
+  const leftmost = placed.get(sorted[0])!.left;
+  const rightmost = placed.get(sorted[sorted.length - 1])!.left + nw;
+  const span = rightmost - leftmost;
+  const idealStart = canvas.left + (canvas.width - span) / 2;
+  const offset = idealStart - leftmost;
+  if (Math.abs(offset) > 0.5) {
+    for (const id of ids) placed.get(id)!.left += offset;
+  }
+}
+
+function layoutTree(
+  nodes: DiagramNode[],
+  edges: DiagramEdge[],
+  canvas: Canvas
+): { placed: Map<string, Placed>; edgeSides: { from: Side; to: Side } } {
+  const placed = new Map<string, Placed>();
+  const nw = DEFAULT_NODE_W;
+  const nh = DEFAULT_NODE_H;
+
+  // Build parent/children maps
+  const parentMap = new Map<string, string[]>();
+  const childrenMap = new Map<string, string[]>();
+  for (const n of nodes) {
+    parentMap.set(n.id, []);
+    childrenMap.set(n.id, []);
+  }
+  for (const e of edges) {
+    if (e.from === e.to) continue;
+    parentMap.get(e.to)?.push(e.from);
+    childrenMap.get(e.from)?.push(e.to);
+  }
+
+  // Assign levels via BFS
+  const levels = assignLevelsFromEdges(nodes, edges);
+
+  // Group by level
+  const byLevel = new Map<number, string[]>();
+  for (const n of nodes) {
+    const lv = levels.get(n.id) ?? 0;
+    if (!byLevel.has(lv)) byLevel.set(lv, []);
+    byLevel.get(lv)!.push(n.id);
+  }
+  const sortedLevels = [...byLevel.keys()].sort((a, b) => a - b);
+  const depth = sortedLevels.length;
+  const rowGap = depth > 1 ? Math.max(40, (canvas.height - depth * nh) / (depth - 1)) : 0;
+
+  // Node lookup
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
+  // Process levels top-to-bottom
+  for (let li = 0; li < sortedLevels.length; li++) {
+    const lv = sortedLevels[li];
+    const ids = byLevel.get(lv)!;
+    const y = canvas.top + li * (nh + rowGap);
+
+    if (li === 0) {
+      // Root level: distribute evenly, centered on canvas
+      const count = ids.length;
+      const gap = count > 1 ? Math.max(MIN_GAP, (canvas.width - count * nw) / (count - 1)) : 0;
+      const startX = count > 1
+        ? canvas.left + (canvas.width - (count * nw + (count - 1) * gap)) / 2
+        : canvas.left + (canvas.width - nw) / 2;
+      ids.forEach((id, j) => {
+        placed.set(id, { node: nodeMap.get(id)!, left: startX + j * (nw + gap), top: y, width: nw, height: nh });
+      });
+    } else {
+      // Non-root: position children centered under their parent(s)
+      // Group by parent, using average parent x for multi-parent nodes
+      const parentOf = new Map<string, string>();
+      for (const id of ids) {
+        const parents = parentMap.get(id) ?? [];
+        // Use the parent that was already placed and has the most specific relationship
+        const placedParent = parents.find((p) => placed.has(p));
+        if (placedParent) parentOf.set(id, placedParent);
+      }
+
+      // Group children by parent
+      const groups = new Map<string, string[]>();
+      const unparented: string[] = [];
+      for (const id of ids) {
+        const p = parentOf.get(id);
+        if (p) {
+          if (!groups.has(p)) groups.set(p, []);
+          groups.get(p)!.push(id);
+        } else {
+          unparented.push(id);
+        }
+      }
+
+      // Sort groups by parent x position
+      const sortedGroups = [...groups.entries()].sort((a, b) => {
+        return placed.get(a[0])!.left - placed.get(b[0])!.left;
+      });
+
+      // Place each group centered under its parent
+      const childGap = MIN_GAP;
+      for (const [parentId, childIds] of sortedGroups) {
+        const p = placed.get(parentId)!;
+        const parentCenterX = p.left + nw / 2;
+        const groupW = childIds.length * nw + (childIds.length - 1) * childGap;
+        let startX = parentCenterX - groupW / 2;
+        for (let j = 0; j < childIds.length; j++) {
+          placed.set(childIds[j], {
+            node: nodeMap.get(childIds[j])!,
+            left: startX + j * (nw + childGap),
+            top: y,
+            width: nw,
+            height: nh
+          });
+        }
+      }
+
+      // Place unparented nodes after groups
+      if (unparented.length > 0) {
+        const rightEdge = [...placed.values()]
+          .filter((p) => Math.abs(p.top - y) < 1)
+          .reduce((max, p) => Math.max(max, p.left + nw), canvas.left);
+        let startX = rightEdge + MIN_GAP;
+        for (const id of unparented) {
+          placed.set(id, { node: nodeMap.get(id)!, left: startX, top: y, width: nw, height: nh });
+          startX += nw + childGap;
+        }
+      }
+
+      // Resolve overlaps
+      resolveOverlaps(ids, placed, nw);
+      // Center on canvas
+      centerOnCanvas(ids, placed, canvas, nw);
+    }
+  }
+
+  // Upward feedback: adjust parents toward children center (2 rounds)
+  for (let round = 0; round < 2; round++) {
+    for (let li = sortedLevels.length - 1; li > 0; li--) {
+      const lv = sortedLevels[li];
+      const ids = byLevel.get(lv)!;
+      // Group by parent again
+      const groups = new Map<string, string[]>();
+      for (const id of ids) {
+        const parents = parentMap.get(id) ?? [];
+        for (const p of parents) {
+          if (placed.has(p)) {
+            if (!groups.has(p)) groups.set(p, []);
+            groups.get(p)!.push(id);
+          }
+        }
+      }
+      for (const [parentId, childIds] of groups.entries()) {
+        const parentPlaced = placed.get(parentId)!;
+        const childCenters = childIds.map((cid) => placed.get(cid)!);
+        const avgChildX = childCenters.reduce((s, c) => s + c.left + nw / 2, 0) / childCenters.length;
+        const targetX = avgChildX - nw / 2;
+        // Move parent partially toward children center
+        parentPlaced.left = parentPlaced.left + (targetX - parentPlaced.left) * 0.3;
+      }
+      // Re-resolve overlaps for parent level
+      const parentLv = sortedLevels[li - 1];
+      resolveOverlaps(byLevel.get(parentLv) ?? [], placed, nw);
+      centerOnCanvas(byLevel.get(parentLv) ?? [], placed, canvas, nw);
+    }
+  }
+
+  return { placed, edgeSides: { from: "bottom", to: "top" } };
+}
+
 function layoutNodes(
   nodes: DiagramNode[],
   edges: DiagramEdge[],
@@ -112,9 +297,13 @@ function layoutNodes(
     return { placed, edgeSides: { from: "right", to: "left" } };
   }
 
-  // layered / tree: both lay out levels top-to-bottom, nodes within level left-to-right
+  if (mode === "tree") {
+    return layoutTree(nodes, edges, canvas);
+  }
+
+  // layered: lay out levels top-to-bottom, nodes within level left-to-right
   const levels = new Map<string, number>();
-  if (mode === "layered" && nodes.every((n) => typeof n.level === "number")) {
+  if (nodes.every((n) => typeof n.level === "number")) {
     for (const n of nodes) levels.set(n.id, n.level!);
   } else {
     const auto = assignLevelsFromEdges(nodes, edges);
@@ -144,6 +333,41 @@ function layoutNodes(
   return { placed, edgeSides: { from: "bottom", to: "top" } };
 }
 
+const ARROW_TRI_SIZE = 8;
+
+function drawArrowHead(slide: PowerPoint.Slide, tipX: number, tipY: number, dir: "down" | "up" | "left" | "right"): void {
+  const s = ARROW_TRI_SIZE;
+  let left: number, top: number, rotation: number;
+  switch (dir) {
+    case "down":
+      left = tipX - s / 2;
+      top = tipY - s;
+      rotation = 180;
+      break;
+    case "up":
+      left = tipX - s / 2;
+      top = tipY;
+      rotation = 0;
+      break;
+    case "right":
+      left = tipX - s;
+      top = tipY - s / 2;
+      rotation = 90;
+      break;
+    case "left":
+      left = tipX;
+      top = tipY - s / 2;
+      rotation = -90;
+      break;
+  }
+  const shape = slide.shapes.addGeometricShape("triangle" as PowerPoint.GeometricShapeType, {
+    left, top, width: s, height: s
+  });
+  shape.rotation = rotation;
+  shape.fill.setSolidColor(LINE_COLOR);
+  shape.lineFormat.visible = false;
+}
+
 export function drawOrthogonalArrowPath(
   slide: PowerPoint.Slide,
   p1: { x: number; y: number },
@@ -152,91 +376,30 @@ export function drawOrthogonalArrowPath(
   toSide: Side,
   arrowMode: "end" | "both"
 ): void {
-  const verticalPrimary = fromSide === "top" || fromSide === "bottom";
+  const w = p2.x - p1.x;
+  const h = p2.y - p1.y;
+  if (Math.abs(w) > 0.5 || Math.abs(h) > 0.5) {
+    const line = slide.shapes.addLine("elbow" as PowerPoint.ConnectorType, {
+      left: p1.x, top: p1.y,
+      width: Math.abs(w) < 0.5 ? 0.5 : w,
+      height: Math.abs(h) < 0.5 ? 0.5 : h
+    });
+    line.lineFormat.weight = LINE_WEIGHT;
+    line.lineFormat.color = LINE_COLOR;
+  }
 
-  if (verticalPrimary) {
-    const midY = Math.round((p1.y + p2.y) / 2);
+  const toDirMap: Record<Side, "down" | "up" | "left" | "right"> = {
+    top: "down", bottom: "up", left: "right", right: "left"
+  };
+  const fromDirMap: Record<Side, "down" | "up" | "left" | "right"> = {
+    top: "up", bottom: "down", left: "left", right: "right"
+  };
 
-    // Segment 1: vertical shaft from p1 to midY
-    const seg1Len = Math.abs(midY - p1.y);
-    if (seg1Len > 1) {
-      const top = Math.min(p1.y, midY);
-      if (arrowMode === "both") {
-        const isDown = midY >= p1.y;
-        const arrowType = isDown ? "downArrow" : "upArrow";
-        const arrowTop = isDown ? p1.y : midY;
-        slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
-          left: p1.x - ARROW_THICKNESS / 2, top: arrowTop, width: ARROW_THICKNESS, height: Math.max(seg1Len, 4)
-        });
-      } else {
-        slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
-          left: p1.x - LINE_THICKNESS / 2, top, width: LINE_THICKNESS, height: Math.max(seg1Len, 0.5)
-        });
-      }
-    }
-
-    // Segment 2: horizontal shaft at midY
-    const seg2Len = Math.abs(p2.x - p1.x);
-    if (seg2Len > 1) {
-      slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
-        left: Math.min(p1.x, p2.x), top: midY - LINE_THICKNESS / 2,
-        width: Math.max(seg2Len, 0.5), height: LINE_THICKNESS
-      });
-    }
-
-    // Segment 3: vertical arrow from midY to p2
-    const seg3Len = Math.abs(p2.y - midY);
-    if (seg3Len > 1) {
-      const isDown = p2.y >= midY;
-      const arrowType = isDown ? "downArrow" : "upArrow";
-      const arrowTop = isDown ? midY : p2.y;
-      slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
-        left: p2.x - ARROW_THICKNESS / 2, top: arrowTop, width: ARROW_THICKNESS, height: Math.max(seg3Len, 4)
-      });
-    }
-  } else {
-    const midX = Math.round((p1.x + p2.x) / 2);
-
-    // Segment 1: horizontal shaft from p1 to midX
-    const seg1Len = Math.abs(midX - p1.x);
-    if (seg1Len > 1) {
-      const left = Math.min(p1.x, midX);
-      if (arrowMode === "both") {
-        const isRight = midX >= p1.x;
-        const arrowType = isRight ? "rightArrow" : "leftArrow";
-        const arrowLeft = isRight ? p1.x : midX;
-        slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
-          left: arrowLeft, top: p1.y - ARROW_THICKNESS / 2,
-          width: Math.max(seg1Len, 4), height: ARROW_THICKNESS
-        });
-      } else {
-        slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
-          left, top: p1.y - LINE_THICKNESS / 2,
-          width: Math.max(seg1Len, 0.5), height: LINE_THICKNESS
-        });
-      }
-    }
-
-    // Segment 2: vertical shaft at midX
-    const seg2Len = Math.abs(p2.y - p1.y);
-    if (seg2Len > 1) {
-      slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
-        left: midX - LINE_THICKNESS / 2, top: Math.min(p1.y, p2.y),
-        width: LINE_THICKNESS, height: Math.max(seg2Len, 0.5)
-      });
-    }
-
-    // Segment 3: horizontal arrow from midX to p2
-    const seg3Len = Math.abs(p2.x - midX);
-    if (seg3Len > 1) {
-      const isRight = p2.x >= midX;
-      const arrowType = isRight ? "rightArrow" : "leftArrow";
-      const arrowLeft = isRight ? midX : p2.x;
-      slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
-        left: arrowLeft, top: p2.y - ARROW_THICKNESS / 2,
-        width: Math.max(seg3Len, 4), height: ARROW_THICKNESS
-      });
-    }
+  if (arrowMode === "end" || arrowMode === "both") {
+    drawArrowHead(slide, p2.x, p2.y, toDirMap[toSide]);
+  }
+  if (arrowMode === "both") {
+    drawArrowHead(slide, p1.x, p1.y, fromDirMap[fromSide]);
   }
 }
 

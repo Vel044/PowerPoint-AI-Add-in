@@ -13,37 +13,49 @@
       <button id="btn-config" class="icon-btn" title="配置">⚙</button>
     </header>
 
-    <section id="config-panel" class="panel hidden">
-      <h3>Provider 配置</h3>
-      <label>当前 Provider
-        <select id="provider-select"></select>
-      </label>
-      <label>API Key
-        <input type="password" id="provider-key" placeholder="ANTHROPIC_AUTH_TOKEN" />
-      </label>
-      <label>Base URL
-        <input type="text" id="provider-url" />
-      </label>
-      <label>模型覆盖（可空，留空用默认 sonnet）
-        <input type="text" id="model-override" placeholder="如 glm-4.7 / MiniMax-M2.7" />
-      </label>
-      <div class="row">
-        <button id="btn-save-config">保存</button>
-        <button id="btn-reset-config" class="secondary">重置为文件</button>
+    <section id="settings-view" class="settings-view hidden">
+      <header class="settings-header">
+        <button id="btn-back" class="back-btn">← 返回</button>
+        <h3>设置</h3>
+      </header>
+      <div class="settings-body">
+        <label>当前 Provider
+          <select id="provider-select"></select>
+        </label>
+        <label>API Key
+          <input type="password" id="provider-key" placeholder="ANTHROPIC_AUTH_TOKEN" />
+        </label>
+        <label>Base URL
+          <input type="text" id="provider-url" />
+        </label>
+        <label>模型选择
+          <select id="model-select">
+            <option value="">使用 Provider 默认</option>
+          </select>
+        </label>
+        <label class="custom-model-label hidden">自定义模型
+          <input type="text" id="model-override" placeholder="输入模型名称，如 glm-4.7" />
+        </label>
+        <div class="settings-actions">
+          <button id="btn-save-config">保存</button>
+          <button id="btn-reset-config" class="secondary">重置为文件</button>
+        </div>
       </div>
     </section>
 
-    <section id="context-bar" class="ctx">
-      <span id="ctx-text">未连接 PowerPoint</span>
-      <button id="btn-refresh-ctx" class="icon-btn" title="刷新上下文">⟳</button>
+    <section id="main-view">
+      <section id="context-bar" class="ctx">
+        <span id="ctx-text">未连接 PowerPoint</span>
+        <button id="btn-refresh-ctx" class="icon-btn" title="刷新上下文">⟳</button>
+      </section>
+
+      <section id="messages" class="messages"></section>
+
+      <footer class="input">
+        <textarea id="input" placeholder='例如：把选中的形状文字改成"Hello"' rows="2"></textarea>
+        <button id="btn-send">发送</button>
+      </footer>
     </section>
-
-    <section id="messages" class="messages"></section>
-
-    <footer class="input">
-      <textarea id="input" placeholder='例如：把选中的形状文字改成"Hello"' rows="2"></textarea>
-      <button id="btn-send">发送</button>
-    </footer>
   </div>
 </body>
 </html>

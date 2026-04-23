@@ -52,7 +52,7 @@ export async function callMessagesStream(
   const provider = getActiveProvider(config);
   const base = provider.env.ANTHROPIC_BASE_URL.replace(/\/$/, "");
   const url = `${base}/v1/messages`;
-  const model = req.modelOverride ?? resolveModel(provider, req.tier ?? "sonnet");
+  const model = req.modelOverride ?? resolveModel(provider, req.tier ?? "opus");
   const token = provider.env.ANTHROPIC_AUTH_TOKEN;
   if (!token) throw new Error("当前 Provider 未配置 ANTHROPIC_AUTH_TOKEN");
 
@@ -160,7 +160,7 @@ export async function callMessagesWithProvider(
 ): Promise<MessagesResponse> {
   const base = provider.env.ANTHROPIC_BASE_URL.replace(/\/$/, "");
   const url = `${base}/v1/messages`;
-  const model = req.modelOverride ?? resolveModel(provider, req.tier ?? "sonnet");
+  const model = req.modelOverride ?? resolveModel(provider, req.tier ?? "opus");
   const token = provider.env.ANTHROPIC_AUTH_TOKEN;
   if (!token) throw new Error("当前 Provider 未配置 ANTHROPIC_AUTH_TOKEN");
 

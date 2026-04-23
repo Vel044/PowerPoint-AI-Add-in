@@ -24,7 +24,6 @@ async function init() {
     return;
   }
   bindUI();
-  renderConfigPanel();
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,12 +49,17 @@ async function setupSelectionListener() {
   try {
     await PowerPoint.run(async (ctx) => {
       const pres = ctx.presentation;
+      const allSlides = pres.slides;
+      allSlides.load("items/id");
       const selectedSlides = pres.getSelectedSlides();
       const selectedShapes = pres.getSelectedShapes();
       selectedSlides.load("items/id");
       selectedShapes.load("items/id");
       await ctx.sync();
-      updateSelectionStatus(selectedSlides.items.length, selectedShapes.items.length);
+      const slideIds = allSlides.items.map((s) => s.id);
+      const selIds = selectedSlides.items.map((s) => s.id);
+      const indexes = selIds.map((id) => slideIds.indexOf(id)).filter((i) => i >= 0);
+      updateSelectionStatus(indexes, selectedShapes.items.length);
     });
   } catch {
     // Office API 不可用，静默跳过
@@ -70,12 +74,18 @@ function startSelectionPolling() {
     try {
       await PowerPoint.run(async (ctx) => {
         const pres = ctx.presentation;
+        const allSlides = pres.slides;
+        allSlides.load("items/id");
         const selectedSlides = pres.getSelectedSlides();
         const selectedShapes = pres.getSelectedShapes();
         selectedSlides.load("items/id");
         selectedShapes.load("items/id");
         await ctx.sync();
-        updateSelectionStatus(selectedSlides.items.length, selectedShapes.items.length);
+        const slideIds = allSlides.items.map((s) => s.id);
+        const selIds = selectedSlides.items.map((s) => s.id);
+        const indexes = selIds.map((id) => slideIds.indexOf(id)).filter((i) => i >= 0);
+        const shapeCount = selectedShapes.items.length;
+        updateSelectionStatus(indexes, shapeCount);
       });
     } catch {
       // ignore polling errors
@@ -83,19 +93,22 @@ function startSelectionPolling() {
   }, 1000);
 }
 
-function updateSelectionStatus(slideCount: number, shapeCount: number) {
+function updateSelectionStatus(slideIndexes: number[], shapeCount: number) {
   const el = document.getElementById("ctx-text");
   if (el) {
-    const slideText = slideCount === 0 ? "未选中幻灯片" : `Slide ${slideCount} selected`;
+    const slideText = slideIndexes.length === 0
+      ? "未选中幻灯片"
+      : slideIndexes.length === 1
+        ? `Slide ${slideIndexes[0] + 1} selected`
+        : `Slides ${slideIndexes.map((i) => i + 1).join(", ")} selected`;
     const shapeText = shapeCount === 0 ? "无形状" : `${shapeCount} shape${shapeCount > 1 ? "s" : ""}`;
     el.textContent = `${slideText} · ${shapeText}`;
   }
 }
 
 function bindUI() {
-  document.getElementById("btn-config")!.addEventListener("click", () => {
-    document.getElementById("config-panel")!.classList.toggle("hidden");
-  });
+  document.getElementById("btn-config")!.addEventListener("click", showSettings);
+  document.getElementById("btn-back")!.addEventListener("click", showMain);
   document.getElementById("btn-send")!.addEventListener("click", onSend);
   document.getElementById("input")!.addEventListener("keydown", (e) => {
     const ke = e as KeyboardEvent;
@@ -109,12 +122,21 @@ function bindUI() {
     localStorage.removeItem("claude-for-office.providers");
     clearCache();
     config = await loadConfig();
-    renderConfigPanel();
+    renderSettingsView();
     addBubble("assistant", "已重置为配置文件。");
   });
   document.getElementById("provider-select")!.addEventListener("change", (e) => {
     config.activeProvider = (e.target as HTMLSelectElement).value;
-    renderConfigPanel();
+    renderSettingsView();
+  });
+  document.getElementById("model-select")!.addEventListener("change", (e) => {
+    const sel = e.target as HTMLSelectElement;
+    const customLabel = document.querySelector(".custom-model-label") as HTMLElement;
+    if (sel.value === "__custom__") {
+      customLabel.classList.remove("hidden");
+    } else {
+      customLabel.classList.add("hidden");
+    }
   });
   document.getElementById("btn-refresh-ctx")!.addEventListener("click", async () => {
     try {
@@ -126,7 +148,18 @@ function bindUI() {
   });
 }
 
-function renderConfigPanel() {
+function showSettings() {
+  document.getElementById("main-view")!.classList.add("view-hidden");
+  document.getElementById("settings-view")!.classList.remove("hidden");
+  renderSettingsView();
+}
+
+function showMain() {
+  document.getElementById("settings-view")!.classList.add("hidden");
+  document.getElementById("main-view")!.classList.remove("view-hidden");
+}
+
+function renderSettingsView() {
   const sel = document.getElementById("provider-select") as HTMLSelectElement;
   sel.innerHTML = "";
   for (const [key, p] of Object.entries(config.providers)) {
@@ -139,18 +172,48 @@ function renderConfigPanel() {
   const active = getActiveProvider(config);
   (document.getElementById("provider-key") as HTMLInputElement).value = active.env.ANTHROPIC_AUTH_TOKEN ?? "";
   (document.getElementById("provider-url") as HTMLInputElement).value = active.env.ANTHROPIC_BASE_URL ?? "";
-  (document.getElementById("model-override") as HTMLInputElement).value = modelOverride;
+
+  const modelSel = document.getElementById("model-select") as HTMLSelectElement;
+  modelSel.innerHTML = "";
+  const tiers: { value: string; label: string; model?: string }[] = [
+    { value: "", label: "使用 Provider 默认" },
+    { value: "opus", label: `Opus（推荐）`, model: active.env.ANTHROPIC_DEFAULT_OPUS_MODEL },
+    { value: "sonnet", label: "Sonnet", model: active.env.ANTHROPIC_DEFAULT_SONNET_MODEL },
+    { value: "haiku", label: "Haiku", model: active.env.ANTHROPIC_DEFAULT_HAIKU_MODEL },
+    { value: "__custom__", label: "自定义..." },
+  ];
+  for (const tier of tiers) {
+    const opt = document.createElement("option");
+    opt.value = tier.value;
+    opt.textContent = tier.model ? `${tier.label}：${tier.model}` : tier.label;
+    modelSel.appendChild(opt);
+  }
+
+  const customLabel = document.querySelector(".custom-model-label") as HTMLElement;
+  if (modelOverride && !modelSel.querySelector(`option[value="${modelOverride}"]`)) {
+    modelSel.value = "__custom__";
+    customLabel.classList.remove("hidden");
+    (document.getElementById("model-override") as HTMLInputElement).value = modelOverride;
+  } else {
+    modelSel.value = modelOverride || "";
+    customLabel.classList.add("hidden");
+  }
 }
 
 function onSaveConfig() {
   const active = getActiveProvider(config);
   active.env.ANTHROPIC_AUTH_TOKEN = (document.getElementById("provider-key") as HTMLInputElement).value.trim();
   active.env.ANTHROPIC_BASE_URL = (document.getElementById("provider-url") as HTMLInputElement).value.trim();
-  modelOverride = (document.getElementById("model-override") as HTMLInputElement).value.trim();
+  const modelSel = (document.getElementById("model-select") as HTMLSelectElement).value;
+  if (modelSel === "__custom__") {
+    modelOverride = (document.getElementById("model-override") as HTMLInputElement).value.trim();
+  } else {
+    modelOverride = modelSel;
+  }
   saveConfig(config);
+  showMain();
   addBubble("assistant", `配置已保存，当前 Provider: ${active.name}`);
   setContextBar(`Provider: ${active.name}${modelOverride ? ` · 模型: ${modelOverride}` : ""}`);
-  document.getElementById("config-panel")!.classList.add("hidden");
 }
 
 async function onSend() {

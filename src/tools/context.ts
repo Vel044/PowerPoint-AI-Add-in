@@ -6,7 +6,7 @@ export const getCurrentContext: ToolHandler = async () => {
     const selectedSlides = pres.getSelectedSlides();
     selectedSlides.load("items/id,items/slideId");
     const selectedShapes = pres.getSelectedShapes();
-    selectedShapes.load("items/id,items/name,items/type,items/left,items/top,items/width,items/height,items/textFrame/textRange/text");
+    selectedShapes.load("items/id,items/name,items/type,items/left,items/top,items/width,items/height");
     const allSlides = pres.slides;
     allSlides.load("items/id");
     await ctx.sync();
@@ -41,7 +41,9 @@ export const getCurrentContext: ToolHandler = async () => {
 
 function safeText(shape: PowerPoint.Shape): string {
   try {
-    return shape.textFrame?.textRange?.text ?? "";
+    const tf = (shape as any).textFrame;
+    if (!tf) return "";
+    return tf.textRange?.text ?? "";
   } catch {
     return "";
   }
