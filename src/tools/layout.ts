@@ -4,7 +4,12 @@ import { resolveSlide } from "./shapes";
 type LayoutMode = "vertical" | "horizontal" | "layered" | "tree";
 type NodeShape = "rectangle" | "roundRectangle" | "diamond" | "ellipse" | "flowChartTerminator" | "flowChartProcess" | "flowChartDecision";
 type ArrowMode = "none" | "end" | "both";
-type Side = "top" | "bottom" | "left" | "right";
+export type Side = "top" | "bottom" | "left" | "right";
+
+export interface Rect { left: number; top: number; width: number; height: number; }
+
+const ARROW_THICKNESS = 14;
+const LINE_THICKNESS = 3;
 
 interface DiagramNode {
   id: string;
@@ -139,6 +144,102 @@ function layoutNodes(
   return { placed, edgeSides: { from: "bottom", to: "top" } };
 }
 
+export function drawOrthogonalArrowPath(
+  slide: PowerPoint.Slide,
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  fromSide: Side,
+  toSide: Side,
+  arrowMode: "end" | "both"
+): void {
+  const verticalPrimary = fromSide === "top" || fromSide === "bottom";
+
+  if (verticalPrimary) {
+    const midY = Math.round((p1.y + p2.y) / 2);
+
+    // Segment 1: vertical shaft from p1 to midY
+    const seg1Len = Math.abs(midY - p1.y);
+    if (seg1Len > 1) {
+      const top = Math.min(p1.y, midY);
+      if (arrowMode === "both") {
+        const isDown = midY >= p1.y;
+        const arrowType = isDown ? "downArrow" : "upArrow";
+        const arrowTop = isDown ? p1.y : midY;
+        slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
+          left: p1.x - ARROW_THICKNESS / 2, top: arrowTop, width: ARROW_THICKNESS, height: Math.max(seg1Len, 4)
+        });
+      } else {
+        slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
+          left: p1.x - LINE_THICKNESS / 2, top, width: LINE_THICKNESS, height: Math.max(seg1Len, 0.5)
+        });
+      }
+    }
+
+    // Segment 2: horizontal shaft at midY
+    const seg2Len = Math.abs(p2.x - p1.x);
+    if (seg2Len > 1) {
+      slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
+        left: Math.min(p1.x, p2.x), top: midY - LINE_THICKNESS / 2,
+        width: Math.max(seg2Len, 0.5), height: LINE_THICKNESS
+      });
+    }
+
+    // Segment 3: vertical arrow from midY to p2
+    const seg3Len = Math.abs(p2.y - midY);
+    if (seg3Len > 1) {
+      const isDown = p2.y >= midY;
+      const arrowType = isDown ? "downArrow" : "upArrow";
+      const arrowTop = isDown ? midY : p2.y;
+      slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
+        left: p2.x - ARROW_THICKNESS / 2, top: arrowTop, width: ARROW_THICKNESS, height: Math.max(seg3Len, 4)
+      });
+    }
+  } else {
+    const midX = Math.round((p1.x + p2.x) / 2);
+
+    // Segment 1: horizontal shaft from p1 to midX
+    const seg1Len = Math.abs(midX - p1.x);
+    if (seg1Len > 1) {
+      const left = Math.min(p1.x, midX);
+      if (arrowMode === "both") {
+        const isRight = midX >= p1.x;
+        const arrowType = isRight ? "rightArrow" : "leftArrow";
+        const arrowLeft = isRight ? p1.x : midX;
+        slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
+          left: arrowLeft, top: p1.y - ARROW_THICKNESS / 2,
+          width: Math.max(seg1Len, 4), height: ARROW_THICKNESS
+        });
+      } else {
+        slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
+          left, top: p1.y - LINE_THICKNESS / 2,
+          width: Math.max(seg1Len, 0.5), height: LINE_THICKNESS
+        });
+      }
+    }
+
+    // Segment 2: vertical shaft at midX
+    const seg2Len = Math.abs(p2.y - p1.y);
+    if (seg2Len > 1) {
+      slide.shapes.addGeometricShape("rectangle" as PowerPoint.GeometricShapeType, {
+        left: midX - LINE_THICKNESS / 2, top: Math.min(p1.y, p2.y),
+        width: LINE_THICKNESS, height: Math.max(seg2Len, 0.5)
+      });
+    }
+
+    // Segment 3: horizontal arrow from midX to p2
+    const seg3Len = Math.abs(p2.x - midX);
+    if (seg3Len > 1) {
+      const isRight = p2.x >= midX;
+      const arrowType = isRight ? "rightArrow" : "leftArrow";
+      const arrowLeft = isRight ? midX : p2.x;
+      slide.shapes.addGeometricShape(arrowType as PowerPoint.GeometricShapeType, {
+        left: arrowLeft, top: p2.y - ARROW_THICKNESS / 2,
+        width: Math.max(seg3Len, 4), height: ARROW_THICKNESS
+      });
+    }
+  }
+}
+
 export const createDiagram: ToolHandler = async (input) => {
   const layout = (input.layout as LayoutMode) ?? "vertical";
   const nodes = (input.nodes as DiagramNode[]) ?? [];
@@ -167,64 +268,32 @@ export const createDiagram: ToolHandler = async (input) => {
     }
 
     // edges
-    const arrowLog: string[] = [];
     for (const e of edges) {
       const fr = rectMap[e.from];
       const tr = rectMap[e.to];
       if (!fr || !tr) continue;
       const arrow = e.arrow ?? "end";
-      // midpoints by layout's natural direction
       const fromSide = edgeSides.from;
       const toSide = edgeSides.to;
       const p1 = midpoint(fr, fromSide);
       const p2 = midpoint(tr, toSide);
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const horizontal = Math.abs(dy) < 2;
-      const vertical = Math.abs(dx) < 2;
-      const orthogonal = horizontal || vertical;
 
-      if (arrow !== "none" && orthogonal) {
-        const thickness = 14;
-        let shapeType: PowerPoint.GeometricShapeType;
-        let left: number, top: number, width: number, height: number;
-        if (horizontal) {
-          if (dx >= 0) {
-            shapeType = "rightArrow" as PowerPoint.GeometricShapeType;
-            left = p1.x; top = p1.y - thickness / 2; width = Math.max(dx, 4); height = thickness;
-          } else {
-            shapeType = "leftArrow" as PowerPoint.GeometricShapeType;
-            left = p2.x; top = p1.y - thickness / 2; width = Math.max(-dx, 4); height = thickness;
-          }
-        } else {
-          if (dy >= 0) {
-            shapeType = "downArrow" as PowerPoint.GeometricShapeType;
-            left = p1.x - thickness / 2; top = p1.y; width = thickness; height = Math.max(dy, 4);
-          } else {
-            shapeType = "upArrow" as PowerPoint.GeometricShapeType;
-            left = p1.x - thickness / 2; top = p2.y; width = thickness; height = Math.max(-dy, 4);
-          }
-        }
-        slide.shapes.addGeometricShape(shapeType, { left, top, width, height });
-      } else {
-        const connectorType: PowerPoint.ConnectorType = orthogonal
-          ? ("straight" as PowerPoint.ConnectorType)
-          : ("elbow" as PowerPoint.ConnectorType);
-        slide.shapes.addLine(connectorType, {
-          left: p1.x, top: p1.y, width: dx, height: dy
+      if (arrow === "none") {
+        slide.shapes.addLine("elbow" as PowerPoint.ConnectorType, {
+          left: p1.x, top: p1.y, width: p2.x - p1.x, height: p2.y - p1.y
         });
-        if (arrow !== "none") arrowLog.push(`${e.from}→${e.to}`);
+      } else {
+        drawOrthogonalArrowPath(slide, p1, p2, fromSide, toSide, arrow);
       }
     }
     await ctx.sync();
 
     const mapStr = Object.entries(idMap).map(([k, v]) => `${k}=${v}`).join(", ");
-    const note = arrowLog.length ? ` 斜向连线无箭头头: ${arrowLog.join(", ")}` : "";
-    return `已创建图：${nodes.length} 节点、${edges.length} 连线。节点 id 映射: ${mapStr}${note}`;
+    return `已创建图：${nodes.length} 节点、${edges.length} 连线。节点 id 映射: ${mapStr}`;
   });
 };
 
-function midpoint(r: { left: number; top: number; width: number; height: number }, side: Side) {
+export function midpoint(r: { left: number; top: number; width: number; height: number }, side: Side) {
   switch (side) {
     case "top": return { x: r.left + r.width / 2, y: r.top };
     case "bottom": return { x: r.left + r.width / 2, y: r.top + r.height };

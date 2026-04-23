@@ -86,7 +86,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "connect_shapes",
-    description: "按形状 id 将两个现有形状的某条边中点用带箭头的连接线连起来。AI 不再自己算坐标。fromSide/toSide 指定连接哪一侧（top/bottom/left/right）。正交方向（横/竖）会自动用 rightArrow/leftArrow/upArrow/downArrow 几何形状生成带箭头的连线；斜向则退化为无头 elbow 线。arrow 默认 'end'。画完图后加新连接、或改现有图时用这个工具，不要再用 add_line 画裸线。",
+    description: "按形状 id 将两个现有形状的某条边中点用带箭头的连接线连起来。AI 不再自己算坐标。fromSide/toSide 指定连接哪一侧（top/bottom/left/right）。所有方向的连线都会自动生成带箭头的正交路径：正交方向用单个箭头形状，斜向方向用三段式路径（细矩形线段 + 箭头形状头）。arrow 默认 'end'。画完图后加新连接、或改现有图时用这个工具，不要再用 add_line 画裸线。",
     input_schema: {
       type: "object",
       properties: {

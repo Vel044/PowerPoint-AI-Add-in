@@ -3,7 +3,7 @@ html, body, #app { height: 100%; margin: 0; }
 body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #f6f7f9; color: #222; font-size: 13px; }
 #app { display: flex; flex-direction: column; }
 
-.bar { display: flex; align-items: center; justify-content: space-between; padding: 36px 12px 8px 12px; background: #5c6bc0; color: #fff; }
+.bar { display: flex; align-items: center; justify-content: space-between; padding: 4px 40px 4px 12px; background: #5c6bc0; color: #fff; }
 .bar .title { font-weight: 600; flex: 1; }
 .icon-btn { background: transparent; border: none; color: inherit; font-size: 16px; cursor: pointer; padding: 4px 8px; flex-shrink: 0; }
 .icon-btn:hover { background: rgba(255,255,255,0.15); border-radius: 4px; }
