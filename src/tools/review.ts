@@ -7,7 +7,7 @@ export const reviewSlide: ToolHandler = async (input) => {
   const slideId = input.slideId as string | undefined;
   const question =
     (input.question as string) ||
-    "请检查这张幻灯片上的形状布局是否有问题：重叠、对齐偏移、连线歪斜、文字溢出等。如果有问题，说明具体是什么以及如何修正。如果没问题，直接说'没问题'。";
+    '请只检查这张幻灯片上最近新添加的形状和连线，忽略旧内容。检查是否有：1) 形状重叠 2) 连线歪斜（没从一个形状中心连到另一个形状中心）3) 文字溢出形状边界 4) 布局明显不对齐。请用 JSON 回复：{"ok": true/false, "issues": [{"type": "重叠/歪斜/溢出/不对齐", "desc": "描述", "fix": "修正建议"}]}。没问题则 {"ok": true, "issues": []}';
 
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, slideId, slideIndex);

@@ -151,16 +151,40 @@ export const connectShapes: ToolHandler = async (input) => {
     }
     const p1 = sideToPoint(shapes[fromShapeId], fromSide);
     const p2 = sideToPoint(shapes[toShapeId], toSide);
-    const line = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-      left: p1.x,
-      top: p1.y,
-      width: p2.x - p1.x,
-      height: p2.y - p1.y,
-    });
-    line.lineFormat.color = "#333333";
-    line.lineFormat.weight = 1.5;
+    const dx = Math.abs(p2.x - p1.x);
+    const dy = Math.abs(p2.y - p1.y);
+
+    if (dx < 2 || dy < 2) {
+      // Aligned: single straight line
+      const line = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+        left: p1.x, top: p1.y, width: p2.x - p1.x, height: p2.y - p1.y,
+      });
+      line.lineFormat.color = "#333333";
+      line.lineFormat.weight = 1.5;
+    } else {
+      // Not aligned: 3-segment orthogonal polyline
+      const midX = p1.x + (p2.x - p1.x) / 2;
+      // Segment 1: horizontal from p1 to midX
+      const seg1 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+        left: p1.x, top: p1.y, width: midX - p1.x, height: 0,
+      });
+      seg1.lineFormat.color = "#333333";
+      seg1.lineFormat.weight = 1.5;
+      // Segment 2: vertical from midY(p1.y) to p2.y
+      const seg2 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+        left: midX, top: p1.y, width: 0, height: p2.y - p1.y,
+      });
+      seg2.lineFormat.color = "#333333";
+      seg2.lineFormat.weight = 1.5;
+      // Segment 3: horizontal from midX to p2
+      const seg3 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+        left: midX, top: p2.y, width: p2.x - midX, height: 0,
+      });
+      seg3.lineFormat.color = "#333333";
+      seg3.lineFormat.weight = 1.5;
+    }
     await ctx.sync();
-    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（纯直线，不带箭头、不跟随形状移动）`;
+    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（横平竖直折线，不带箭头、不跟随形状移动）`;
   });
 };
 

@@ -73,34 +73,6 @@ function assignLevelsFromEdges(nodes: DiagramNode[], edges: DiagramEdge[]): Map<
 
 const MIN_GAP = 20;
 
-function resolveOverlaps(ids: string[], placed: Map<string, Placed>, nw: number): void {
-  const sorted = [...ids].sort((a, b) => placed.get(a)!.left - placed.get(b)!.left);
-  for (let j = 1; j < sorted.length; j++) {
-    const prev = placed.get(sorted[j - 1])!;
-    const curr = placed.get(sorted[j])!;
-    const minLeft = prev.left + nw + MIN_GAP;
-    if (curr.left < minLeft) {
-      const shift = minLeft - curr.left;
-      for (let k = j; k < sorted.length; k++) {
-        placed.get(sorted[k])!.left += shift;
-      }
-    }
-  }
-}
-
-function centerOnCanvas(ids: string[], placed: Map<string, Placed>, canvas: Canvas, nw: number): void {
-  if (ids.length === 0) return;
-  const sorted = [...ids].sort((a, b) => placed.get(a)!.left - placed.get(b)!.left);
-  const leftmost = placed.get(sorted[0])!.left;
-  const rightmost = placed.get(sorted[sorted.length - 1])!.left + nw;
-  const span = rightmost - leftmost;
-  const idealStart = canvas.left + (canvas.width - span) / 2;
-  const offset = idealStart - leftmost;
-  if (Math.abs(offset) > 0.5) {
-    for (const id of ids) placed.get(id)!.left += offset;
-  }
-}
-
 function layoutTree(
   nodes: DiagramNode[],
   edges: DiagramEdge[],
@@ -109,19 +81,6 @@ function layoutTree(
   const placed = new Map<string, Placed>();
   const nw = DEFAULT_NODE_W;
   const nh = DEFAULT_NODE_H;
-
-  // Build parent/children maps
-  const parentMap = new Map<string, string[]>();
-  const childrenMap = new Map<string, string[]>();
-  for (const n of nodes) {
-    parentMap.set(n.id, []);
-    childrenMap.set(n.id, []);
-  }
-  for (const e of edges) {
-    if (e.from === e.to) continue;
-    parentMap.get(e.to)?.push(e.from);
-    childrenMap.get(e.from)?.push(e.to);
-  }
 
   // Assign levels via BFS
   const levels = assignLevelsFromEdges(nodes, edges);
@@ -137,120 +96,31 @@ function layoutTree(
   const depth = sortedLevels.length;
   const rowGap = depth > 1 ? Math.max(40, (canvas.height - depth * nh) / (depth - 1)) : 0;
 
-  // Node lookup
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  // Find max nodes per level to determine uniform column grid
+  const maxPerRow = Math.max(...[...byLevel.values()].map((ids) => ids.length));
 
-  // Process levels top-to-bottom
+  // Calculate uniform gap based on widest row
+  const uniformGap = maxPerRow > 1 ? Math.max(MIN_GAP, (canvas.width - maxPerRow * nw) / (maxPerRow - 1)) : 0;
+
+  // Place each level uniformly distributed and centered
   for (let li = 0; li < sortedLevels.length; li++) {
-    const lv = sortedLevels[li];
-    const ids = byLevel.get(lv)!;
+    const ids = byLevel.get(sortedLevels[li])!;
     const y = canvas.top + li * (nh + rowGap);
+    const count = ids.length;
 
-    if (li === 0) {
-      // Root level: distribute evenly, centered on canvas
-      const count = ids.length;
-      const gap = count > 1 ? Math.max(MIN_GAP, (canvas.width - count * nw) / (count - 1)) : 0;
-      const startX = count > 1
-        ? canvas.left + (canvas.width - (count * nw + (count - 1) * gap)) / 2
-        : canvas.left + (canvas.width - nw) / 2;
-      ids.forEach((id, j) => {
-        placed.set(id, { node: nodeMap.get(id)!, left: startX + j * (nw + gap), top: y, width: nw, height: nh });
+    // Center this row: distribute `count` nodes evenly using uniformGap
+    const totalRowW = count * nw + (count - 1) * uniformGap;
+    const startX = canvas.left + (canvas.width - totalRowW) / 2;
+
+    ids.forEach((id, j) => {
+      placed.set(id, {
+        node: nodes.find((n) => n.id === id)!,
+        left: startX + j * (nw + uniformGap),
+        top: y,
+        width: nw,
+        height: nh,
       });
-    } else {
-      // Non-root: position children centered under their parent(s)
-      // Group by parent, using average parent x for multi-parent nodes
-      const parentOf = new Map<string, string>();
-      for (const id of ids) {
-        const parents = parentMap.get(id) ?? [];
-        // Use the parent that was already placed and has the most specific relationship
-        const placedParent = parents.find((p) => placed.has(p));
-        if (placedParent) parentOf.set(id, placedParent);
-      }
-
-      // Group children by parent
-      const groups = new Map<string, string[]>();
-      const unparented: string[] = [];
-      for (const id of ids) {
-        const p = parentOf.get(id);
-        if (p) {
-          if (!groups.has(p)) groups.set(p, []);
-          groups.get(p)!.push(id);
-        } else {
-          unparented.push(id);
-        }
-      }
-
-      // Sort groups by parent x position
-      const sortedGroups = [...groups.entries()].sort((a, b) => {
-        return placed.get(a[0])!.left - placed.get(b[0])!.left;
-      });
-
-      // Place each group centered under its parent
-      const childGap = MIN_GAP;
-      for (const [parentId, childIds] of sortedGroups) {
-        const p = placed.get(parentId)!;
-        const parentCenterX = p.left + nw / 2;
-        const groupW = childIds.length * nw + (childIds.length - 1) * childGap;
-        let startX = parentCenterX - groupW / 2;
-        for (let j = 0; j < childIds.length; j++) {
-          placed.set(childIds[j], {
-            node: nodeMap.get(childIds[j])!,
-            left: startX + j * (nw + childGap),
-            top: y,
-            width: nw,
-            height: nh
-          });
-        }
-      }
-
-      // Place unparented nodes after groups
-      if (unparented.length > 0) {
-        const rightEdge = [...placed.values()]
-          .filter((p) => Math.abs(p.top - y) < 1)
-          .reduce((max, p) => Math.max(max, p.left + nw), canvas.left);
-        let startX = rightEdge + MIN_GAP;
-        for (const id of unparented) {
-          placed.set(id, { node: nodeMap.get(id)!, left: startX, top: y, width: nw, height: nh });
-          startX += nw + childGap;
-        }
-      }
-
-      // Resolve overlaps
-      resolveOverlaps(ids, placed, nw);
-      // Center on canvas
-      centerOnCanvas(ids, placed, canvas, nw);
-    }
-  }
-
-  // Upward feedback: adjust parents toward children center (2 rounds)
-  for (let round = 0; round < 2; round++) {
-    for (let li = sortedLevels.length - 1; li > 0; li--) {
-      const lv = sortedLevels[li];
-      const ids = byLevel.get(lv)!;
-      // Group by parent again
-      const groups = new Map<string, string[]>();
-      for (const id of ids) {
-        const parents = parentMap.get(id) ?? [];
-        for (const p of parents) {
-          if (placed.has(p)) {
-            if (!groups.has(p)) groups.set(p, []);
-            groups.get(p)!.push(id);
-          }
-        }
-      }
-      for (const [parentId, childIds] of groups.entries()) {
-        const parentPlaced = placed.get(parentId)!;
-        const childCenters = childIds.map((cid) => placed.get(cid)!);
-        const avgChildX = childCenters.reduce((s, c) => s + c.left + nw / 2, 0) / childCenters.length;
-        const targetX = avgChildX - nw / 2;
-        // Move parent partially toward children center
-        parentPlaced.left = parentPlaced.left + (targetX - parentPlaced.left) * 0.3;
-      }
-      // Re-resolve overlaps for parent level
-      const parentLv = sortedLevels[li - 1];
-      resolveOverlaps(byLevel.get(parentLv) ?? [], placed, nw);
-      centerOnCanvas(byLevel.get(parentLv) ?? [], placed, canvas, nw);
-    }
+    });
   }
 
   return { placed, edgeSides: { from: "bottom", to: "top" } };
@@ -345,9 +215,17 @@ export const createDiagram: ToolHandler = async (input) => {
 
   const { placed, edgeSides } = layoutNodes(nodes, edges, layout, canvas);
 
+  // Debug: log all node positions
+  const nodePositions = nodes.map((n) => {
+    const p = placed.get(n.id)!;
+    return `${n.id}(${n.text}): left=${p.left.toFixed(1)} top=${p.top.toFixed(1)} w=${p.width} h=${p.height}`;
+  }).join(" | ");
+
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
     const idMap: Record<string, string> = {};
+    const logLines: string[] = [`[createDiagram] layout=${layout} canvas=${JSON.stringify(canvas)}`];
+    logLines.push(`[createDiagram] node positions: ${nodePositions}`);
 
     // 1. Create node shapes
     for (const node of nodes) {
@@ -357,25 +235,66 @@ export const createDiagram: ToolHandler = async (input) => {
         left: p.left, top: p.top, width: p.width, height: p.height
       });
       if (node.text) shape.textFrame.textRange.text = node.text;
-      shape.load("id");
+      shape.load("id,left,top,width,height");
       await ctx.sync();
       idMap[node.id] = shape.id;
+      logLines.push(`[createDiagram] node ${node.id}: planned=(${p.left.toFixed(1)},${p.top.toFixed(1)}) actual=(${shape.left},${shape.top}) id=${shape.id}`);
     }
 
-    // 2. Draw edges as plain straight lines (no arrowheads, no dynamic following)
+    // 2. Draw edges as orthogonal polylines (横平竖直)
+    const edgeLogs: string[] = [];
     for (const e of edges) {
       const a = placed.get(e.from);
       const b = placed.get(e.to);
       if (!a || !b) continue;
       const p1 = sidePoint(a, edgeSides.from);
       const p2 = sidePoint(b, edgeSides.to);
-      const line = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-        left: p1.x, top: p1.y, width: p2.x - p1.x, height: p2.y - p1.y,
-      });
-      line.lineFormat.color = "#333333";
-      line.lineFormat.weight = 1.5;
+
+      const dx = Math.abs(p2.x - p1.x);
+      const dy = Math.abs(p2.y - p1.y);
+
+      if (dx < 2) {
+        // Vertically aligned: single vertical line
+        const line = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+          left: p1.x, top: p1.y, width: 0, height: p2.y - p1.y,
+        });
+        line.lineFormat.color = "#333333";
+        line.lineFormat.weight = 1.5;
+        edgeLogs.push(`${e.from}→${e.to}: vertical (${p1.x.toFixed(0)},${p1.y.toFixed(0)})→(${p2.x.toFixed(0)},${p2.y.toFixed(0)})`);
+      } else {
+        // Not aligned: draw 3-segment orthogonal polyline (down → horizontal → down)
+        const midY = p1.y + (p2.y - p1.y) / 2;
+        // Segment 1: source.bottom → midY (vertical)
+        const seg1 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+          left: p1.x, top: p1.y, width: 0, height: midY - p1.y,
+        });
+        seg1.lineFormat.color = "#333333";
+        seg1.lineFormat.weight = 1.5;
+        // Segment 2: midY horizontal from source_x to target_x
+        const seg2 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+          left: p1.x, top: midY, width: p2.x - p1.x, height: 0,
+        });
+        seg2.lineFormat.color = "#333333";
+        seg2.lineFormat.weight = 1.5;
+        // Segment 3: midY → target.top (vertical)
+        const seg3 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+          left: p2.x, top: midY, width: 0, height: p2.y - midY,
+        });
+        seg3.lineFormat.color = "#333333";
+        seg3.lineFormat.weight = 1.5;
+        edgeLogs.push(`${e.from}→${e.to}: orthogonal via midY=${midY.toFixed(0)}`);
+      }
     }
     await ctx.sync();
+    logLines.push(`[createDiagram] edges: ${edgeLogs.join(" | ")}`);
+
+    // Send debug logs to terminal
+    const logMsg = logLines.join("\n");
+    fetch("https://localhost:3001/__terminal-log", {
+      method: "POST",
+      body: JSON.stringify({ level: "info", msg: logMsg }),
+      headers: { "Content-Type": "application/json" }
+    }).catch(() => {});
 
     const mapStr = Object.entries(idMap).map(([k, v]) => `${k}=${v}`).join(", ");
     return `已创建图：${nodes.length} 节点、${edges.length} 连线（纯直线，不带箭头）。节点 id 映射: ${mapStr}`;
@@ -389,4 +308,16 @@ function sidePoint(p: Placed, side: Side): { x: number; y: number } {
     case "bottom": return { x: p.left + p.width / 2, y: p.top + p.height };
     case "left": return { x: p.left, y: p.top + p.height / 2 };
   }
+}
+
+function edgePoint(src: Placed, side: Side, dst: Placed): { x: number; y: number } {
+  const base = sidePoint(src, side);
+  if (side === "top" || side === "bottom") {
+    const srcCx = src.left + src.width / 2;
+    const dstCx = dst.left + dst.width / 2;
+    const offset = dstCx - srcCx;
+    const maxShift = src.width * 0.4;
+    base.x = srcCx + Math.max(-maxShift, Math.min(maxShift, offset));
+  }
+  return base;
 }
