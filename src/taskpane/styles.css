@@ -45,3 +45,72 @@ body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #
 .input textarea { flex: 1; resize: none; border: 1px solid #d0d0d0; border-radius: 6px; padding: 6px 8px; font: inherit; }
 .input button { padding: 0 14px; background: #5c6bc0; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
 .input button:disabled { background: #aaa; cursor: not-allowed; }
+
+.history-popup {
+  position: absolute;
+  top: 36px;
+  right: 8px;
+  width: 280px;
+  max-height: 360px;
+  background: #fff;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.history-popup.hidden { display: none; }
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #f5f6fa;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 600;
+  font-size: 12px;
+  color: #333;
+}
+.history-header .icon-btn { color: #666; font-size: 14px; }
+.history-list { flex: 1; overflow-y: auto; }
+.history-empty { padding: 20px; text-align: center; color: #888; font-size: 12px; }
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  font-size: 12px;
+}
+.history-item:hover { background: #f5f7ff; }
+.history-item.active { background: #e8eefc; }
+.history-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #222;
+}
+.history-item-time {
+  flex: 0 0 auto;
+  color: #888;
+  font-size: 11px;
+  min-width: 40px;
+  text-align: right;
+}
+.history-item-del {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: #bbb;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+  visibility: hidden;
+}
+.history-item:hover .history-item-del { visibility: visible; }
+.history-item-del:hover { color: #d32f2f; }

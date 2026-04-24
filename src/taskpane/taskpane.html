@@ -10,8 +10,19 @@
   <div id="app">
     <header class="bar">
       <div class="title">PowerPoint AI Add-in</div>
+      <button id="btn-history" class="icon-btn" title="Chat History">💬</button>
+      <button id="btn-new-chat" class="icon-btn" title="New Chat">＋</button>
       <button id="btn-config" class="icon-btn" title="配置">⚙</button>
     </header>
+
+    <div id="history-popup" class="history-popup hidden">
+      <div class="history-header">
+        <span>Chat History</span>
+        <button id="btn-close-history" class="icon-btn" title="关闭">✕</button>
+      </div>
+      <div id="history-list" class="history-list"></div>
+      <div id="history-empty" class="history-empty hidden">暂无历史对话</div>
+    </div>
 
     <section id="settings-view" class="settings-view hidden">
       <header class="settings-header">

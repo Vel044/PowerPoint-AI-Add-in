@@ -57,7 +57,7 @@ export async function callMessagesStream(
   if (!token) throw new Error("当前 Provider 未配置 ANTHROPIC_AUTH_TOKEN");
 
   const logToTerminal = (level: string, msg: string) => {
-    fetch("http://localhost:3001/__terminal-log", {
+    fetch("https://localhost:3001/__terminal-log", {
       method: "POST",
       body: JSON.stringify({ level, msg }),
       headers: { "Content-Type": "application/json" }
@@ -67,10 +67,15 @@ export async function callMessagesStream(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "anthropic-version": "2023-06-01",
-    "x-api-key": token,
     Authorization: `Bearer ${token}`
   };
+  // Anthropic 官方 API 要求 x-api-key + anthropic-version；
+  // 第三方兼容网关（Z.AI/MiniMax 等）只接受 Bearer，且部分网关 CORS 白名单
+  // 不包含这两个 header，会导致预检失败 → "TypeError: Load failed"
+  if (/(^|\.)anthropic\.com$/i.test(new URL(url).hostname)) {
+    headers["anthropic-version"] = "2023-06-01";
+    headers["x-api-key"] = token;
+  }
 
   const body: Record<string, unknown> = {
     model,
@@ -158,18 +163,31 @@ export async function callMessagesWithProvider(
   provider: Provider,
   req: MessagesRequest
 ): Promise<MessagesResponse> {
+  const logToTerminal = (level: string, msg: string) => {
+    fetch("https://localhost:3001/__terminal-log", {
+      method: "POST",
+      body: JSON.stringify({ level, msg }),
+      headers: { "Content-Type": "application/json" }
+    }).catch(() => {});
+  };
+
   const base = provider.env.ANTHROPIC_BASE_URL.replace(/\/$/, "");
   const url = `${base}/v1/messages`;
   const model = req.modelOverride ?? resolveModel(provider, req.tier ?? "opus");
   const token = provider.env.ANTHROPIC_AUTH_TOKEN;
   if (!token) throw new Error("当前 Provider 未配置 ANTHROPIC_AUTH_TOKEN");
 
+  const maskedKey = token.length > 8 ? `${token.slice(0, 4)}...${token.slice(-4)}` : "****";
+  logToTerminal("info", `[API] 请求: ${url} model=${model} key=${maskedKey} msgs=${req.messages.length}`);
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "anthropic-version": "2023-06-01",
-    "x-api-key": token,
     Authorization: `Bearer ${token}`
   };
+  if (/(^|\.)anthropic\.com$/i.test(new URL(url).hostname)) {
+    headers["anthropic-version"] = "2023-06-01";
+    headers["x-api-key"] = token;
+  }
 
   const body: Record<string, unknown> = {
     model,
@@ -183,14 +201,22 @@ export async function callMessagesWithProvider(
   const timeout = setTimeout(() => controller.abort(), getTimeoutMs(provider));
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (fetchErr) {
+      logToTerminal("error", `[API] fetch 失败: ${fetchErr} | URL=${url}`);
+      throw new Error(`请求失败: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)} (URL: ${url})`);
+    }
+    logToTerminal("info", `[API] 响应状态: ${res.status} ${res.statusText}`);
     if (!res.ok) {
       const text = await res.text();
+      logToTerminal("error", `[API] 错误响应 ${res.status}: ${text.slice(0, 500)}`);
       throw new Error(`API ${res.status}: ${text.slice(0, 500)}`);
     }
     return (await res.json()) as MessagesResponse;

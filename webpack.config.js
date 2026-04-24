@@ -8,7 +8,16 @@ module.exports = async (env, argv) => {
   const isDev = argv.mode !== "production";
   const httpsOptions = isDev ? await devCerts.getHttpsServerOptions() : undefined;
 
-  const logServer = http.createServer((req, res) => {
+  const handleLogRequest = (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204).end();
+      return;
+    }
+
     if (req.url === "/__terminal-log" && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
@@ -25,9 +34,12 @@ module.exports = async (env, argv) => {
     } else {
       res.writeHead(404).end();
     }
-  });
-  await new Promise((resolve) => logServer.listen(3001, resolve));
-  console.log("📋 Terminal log server running on http://localhost:3001");
+  };
+  const logHttpsServer = isDev
+    ? require("https").createServer(httpsOptions, handleLogRequest)
+    : http.createServer(handleLogRequest);
+  await new Promise((resolve) => logHttpsServer.listen(3001, resolve));
+  console.log(`📋 Terminal log server running on ${isDev ? "https" : "http"}://localhost:3001`);
 
   return {
     mode: isDev ? "development" : "production",

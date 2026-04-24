@@ -8,10 +8,22 @@ import {
   clearCache
 } from "../config";
 import { TOOL_DEFINITIONS, TOOL_HANDLERS } from "../tools/registry";
-import { Message } from "../types";
+import { ContentBlock, Message } from "../types";
 import { addBubble, setContextBar } from "./ui";
+import {
+  ChatSession,
+  createSession,
+  deleteSession,
+  deriveTitle,
+  extractUserText,
+  formatRelativeTime,
+  getSession,
+  listSessions,
+  saveSession
+} from "./chatHistory";
 
-const history: Message[] = [];
+let history: Message[] = [];
+let currentSession: ChatSession = createSession();
 let config: ProvidersConfig;
 let modelOverride = "";
 let officeReady = false;
@@ -110,6 +122,20 @@ function bindUI() {
   document.getElementById("btn-config")!.addEventListener("click", showSettings);
   document.getElementById("btn-back")!.addEventListener("click", showMain);
   document.getElementById("btn-send")!.addEventListener("click", onSend);
+  document.getElementById("btn-new-chat")!.addEventListener("click", onNewChat);
+  document.getElementById("btn-history")!.addEventListener("click", toggleHistoryPopup);
+  document.getElementById("btn-close-history")!.addEventListener("click", () => {
+    document.getElementById("history-popup")!.classList.add("hidden");
+  });
+  // 点击弹窗外部自动关闭
+  document.addEventListener("click", (e) => {
+    const popup = document.getElementById("history-popup");
+    const trigger = document.getElementById("btn-history");
+    if (!popup || popup.classList.contains("hidden")) return;
+    const target = e.target as Node;
+    if (popup.contains(target) || trigger?.contains(target)) return;
+    popup.classList.add("hidden");
+  });
   document.getElementById("input")!.addEventListener("keydown", (e) => {
     const ke = e as KeyboardEvent;
     if (ke.key === "Enter" && !ke.shiftKey) {
@@ -265,12 +291,149 @@ async function onSend() {
         }
       }
     });
-    history.length = 0;
-    history.push(...updated);
+    history = updated;
+    persistCurrentSession();
   } catch (e) {
     addBubble("error", e instanceof Error ? e.message : String(e));
   } finally {
     sendBtn.disabled = false;
+  }
+}
+
+function persistCurrentSession() {
+  currentSession.messages = history;
+  currentSession.title = deriveTitle(history);
+  saveSession(currentSession);
+}
+
+function onNewChat() {
+  // 如果当前会话有内容就先保存；空的就不留痕
+  if (history.length > 0) {
+    persistCurrentSession();
+  }
+  history = [];
+  currentSession = createSession();
+  clearMessagesUI();
+  addBubble("assistant", "新对话已开始。请告诉我你想对当前演示文稿做什么。");
+  document.getElementById("history-popup")!.classList.add("hidden");
+}
+
+function clearMessagesUI() {
+  const container = document.getElementById("messages");
+  if (container) container.innerHTML = "";
+}
+
+function toggleHistoryPopup() {
+  const popup = document.getElementById("history-popup")!;
+  if (popup.classList.contains("hidden")) {
+    renderHistoryList();
+    popup.classList.remove("hidden");
+  } else {
+    popup.classList.add("hidden");
+  }
+}
+
+function renderHistoryList() {
+  const list = document.getElementById("history-list")!;
+  const empty = document.getElementById("history-empty")!;
+  list.innerHTML = "";
+  const sessions = listSessions();
+  if (sessions.length === 0) {
+    empty.classList.remove("hidden");
+    list.classList.add("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  list.classList.remove("hidden");
+  const now = Date.now();
+  for (const s of sessions) {
+    const item = document.createElement("div");
+    item.className = "history-item" + (s.id === currentSession.id ? " active" : "");
+
+    const title = document.createElement("span");
+    title.className = "history-item-title";
+    title.textContent = s.title || "新对话";
+
+    const time = document.createElement("span");
+    time.className = "history-item-time";
+    time.textContent = formatRelativeTime(s.updatedAt, now);
+
+    const del = document.createElement("button");
+    del.className = "history-item-del";
+    del.textContent = "✕";
+    del.title = "删除";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSession(s.id);
+      if (s.id === currentSession.id) {
+        history = [];
+        currentSession = createSession();
+        clearMessagesUI();
+        addBubble("assistant", "会话已删除。");
+      }
+      renderHistoryList();
+    });
+
+    item.addEventListener("click", () => {
+      loadSessionIntoView(s.id);
+    });
+
+    item.appendChild(title);
+    item.appendChild(time);
+    item.appendChild(del);
+    list.appendChild(item);
+  }
+}
+
+function loadSessionIntoView(id: string) {
+  // 切换前保存当前会话（如果有内容）
+  if (history.length > 0 && id !== currentSession.id) {
+    persistCurrentSession();
+  }
+  const s = getSession(id);
+  if (!s) return;
+  currentSession = s;
+  history = s.messages.slice();
+  rebuildMessagesUI(history);
+  document.getElementById("history-popup")!.classList.add("hidden");
+}
+
+function rebuildMessagesUI(messages: Message[]) {
+  clearMessagesUI();
+  // 先建一个 tool_use_id → name 的映射，用于 tool_result 回显
+  const toolNameById = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role === "assistant" && Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (b.type === "tool_use") toolNameById.set(b.id, b.name);
+      }
+    }
+  }
+  for (const m of messages) {
+    if (m.role === "user") {
+      if (typeof m.content === "string") {
+        addBubble("user", extractUserText(m));
+      } else {
+        for (const b of m.content) {
+          if (b.type === "tool_result") {
+            const name = toolNameById.get(b.tool_use_id) ?? "tool";
+            addBubble(b.is_error ? "error" : "tool", b.content, `← ${name}`);
+          }
+        }
+      }
+    } else if (m.role === "assistant") {
+      if (typeof m.content === "string") {
+        addBubble("assistant", m.content);
+      } else {
+        for (const b of m.content as ContentBlock[]) {
+          if (b.type === "text") {
+            if (b.text) addBubble("assistant", b.text);
+          } else if (b.type === "tool_use") {
+            addBubble("tool", JSON.stringify(b.input, null, 2), `→ ${b.name}`);
+          }
+        }
+      }
+    }
   }
 }
 

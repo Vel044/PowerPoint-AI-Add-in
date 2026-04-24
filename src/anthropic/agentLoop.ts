@@ -68,7 +68,7 @@ export async function runAgent(
   const emit = options.onEvent ?? (() => {});
   const messages: Message[] = [...history, { role: "user", content: userMessage }];
   const logToTerminal = (level: string, msg: string) => {
-    fetch("http://localhost:3001/__terminal-log", {
+    fetch("https://localhost:3001/__terminal-log", {
       method: "POST",
       body: JSON.stringify({ level, msg }),
       headers: { "Content-Type": "application/json" }
@@ -92,15 +92,30 @@ export async function runAgent(
       throw e;
     }
 
-    const assistantBlocks: ContentBlock[] = res.content.map((b) => {
-      if (b.type === "text") return { type: "text", text: b.text };
-      return { type: "tool_use", id: b.id, name: b.name, input: b.input };
-    });
+    const assistantBlocks: ContentBlock[] = [];
+    for (const b of res.content as Array<Record<string, unknown>>) {
+      if (b.type === "text" && typeof b.text === "string") {
+        assistantBlocks.push({ type: "text", text: b.text });
+      } else if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+        assistantBlocks.push({
+          type: "tool_use",
+          id: b.id,
+          name: b.name,
+          input: (b.input as Record<string, unknown>) ?? {}
+        });
+      }
+      // thinking / 未知类型：丢弃，不影响下一轮
+    }
     messages.push({ role: "assistant", content: assistantBlocks });
 
+    logToTerminal("info", `[Agent] stop_reason=${res.stop_reason} blocks=${assistantBlocks.length}`);
     for (const b of assistantBlocks) {
       if (b.type === "text" && b.text) emit({ type: "text", text: b.text });
-      if (b.type === "tool_use") emit({ type: "tool_call", toolName: b.name, toolInput: b.input });
+      if (b.type === "tool_use") {
+        const inputPreview = JSON.stringify(b.input).slice(0, 300);
+        logToTerminal("info", `[Agent] → tool_use: ${b.name} input=${inputPreview}`);
+        emit({ type: "tool_call", toolName: b.name, toolInput: b.input });
+      }
     }
 
     if (res.stop_reason !== "tool_use") {
@@ -113,6 +128,7 @@ export async function runAgent(
     for (const call of toolUses) {
       const handler = options.handlers[call.name];
       if (!handler) {
+        logToTerminal("warn", `[Agent] ← tool_result: ${call.name} (未知工具)`);
         results.push({
           type: "tool_result",
           tool_use_id: call.id,
@@ -124,10 +140,14 @@ export async function runAgent(
       }
       try {
         const out = await handler(call.input, toolCtx);
+        const outStr = out ?? "";
+        const outPreview = outStr.slice(0, 300);
+        logToTerminal("info", `[Agent] ← tool_result: ${call.name} ok len=${outStr.length} preview=${outPreview}`);
         results.push({ type: "tool_result", tool_use_id: call.id, content: out });
         emit({ type: "tool_result", toolName: call.name, toolResult: out });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        logToTerminal("error", `[Agent] ← tool_result: ${call.name} FAILED: ${msg}`);
         results.push({ type: "tool_result", tool_use_id: call.id, content: msg, is_error: true });
         emit({ type: "tool_result", toolName: call.name, toolResult: msg, isError: true });
       }
@@ -148,7 +168,7 @@ export async function runAgentStream(
   const emit = options.onEvent ?? (() => {});
   const messages: Message[] = [...history, { role: "user", content: userMessage }];
   const logToTerminal = (level: string, msg: string) => {
-    fetch("http://localhost:3001/__terminal-log", {
+    fetch("https://localhost:3001/__terminal-log", {
       method: "POST",
       body: JSON.stringify({ level, msg }),
       headers: { "Content-Type": "application/json" }

@@ -1,6 +1,7 @@
 export type BubbleKind = "user" | "assistant" | "tool" | "error";
 
 export function addBubble(kind: BubbleKind, text: string, meta?: string): HTMLElement {
+  const safeText = typeof text === "string" ? text : text == null ? "" : String(text);
   const container = document.getElementById("messages")!;
   const el = document.createElement("div");
   el.className = `msg ${kind}`;
@@ -11,7 +12,7 @@ export function addBubble(kind: BubbleKind, text: string, meta?: string): HTMLEl
     el.appendChild(m);
   }
   const body = document.createElement("div");
-  body.textContent = text;
+  body.textContent = safeText;
   el.appendChild(body);
 
   // Tool messages are collapsible by default
@@ -19,7 +20,7 @@ export function addBubble(kind: BubbleKind, text: string, meta?: string): HTMLEl
     el.classList.add("collapsible");
     const preview = document.createElement("div");
     preview.className = "preview";
-    preview.textContent = text.length > 100 ? text.slice(0, 100) + "..." : text;
+    preview.textContent = safeText.length > 100 ? safeText.slice(0, 100) + "..." : safeText;
     el.insertBefore(preview, body);
     body.style.display = "none";
 
