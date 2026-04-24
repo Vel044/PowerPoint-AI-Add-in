@@ -272,6 +272,14 @@ function layoutNodes(
   const nh = DEFAULT_NODE_H;
 
   if (mode === "vertical") {
+    const childCount = new Map<string, number>();
+    for (const e of edges) {
+      childCount.set(e.from, (childCount.get(e.from) ?? 0) + 1);
+    }
+    if ([...childCount.values()].some(c => c > 1)) {
+      return layoutTree(nodes, edges, canvas);
+    }
+
     const n = nodes.length;
     const totalH = n * nh;
     const gap = n > 1 ? Math.max(20, (canvas.height - totalH) / (n - 1)) : 0;
@@ -333,74 +341,52 @@ function layoutNodes(
   return { placed, edgeSides: { from: "bottom", to: "top" } };
 }
 
-const ARROW_TRI_SIZE = 8;
+export const ARROW_NAME_PREFIX = "CLAUDE_ARROW";
 
-function drawArrowHead(slide: PowerPoint.Slide, tipX: number, tipY: number, dir: "down" | "up" | "left" | "right"): void {
-  const s = ARROW_TRI_SIZE;
-  let left: number, top: number, rotation: number;
-  switch (dir) {
-    case "down":
-      left = tipX - s / 2;
-      top = tipY - s;
-      rotation = 180;
-      break;
-    case "up":
-      left = tipX - s / 2;
-      top = tipY;
-      rotation = 0;
-      break;
-    case "right":
-      left = tipX - s;
-      top = tipY - s / 2;
-      rotation = 90;
-      break;
-    case "left":
-      left = tipX;
-      top = tipY - s / 2;
-      rotation = -90;
-      break;
-  }
-  const shape = slide.shapes.addGeometricShape("triangle" as PowerPoint.GeometricShapeType, {
-    left, top, width: s, height: s
-  });
-  shape.rotation = rotation;
-  shape.fill.setSolidColor(LINE_COLOR);
-  shape.lineFormat.visible = false;
-}
-
-export function drawOrthogonalArrowPath(
+export function drawArrowLine(
   slide: PowerPoint.Slide,
   p1: { x: number; y: number },
   p2: { x: number; y: number },
-  fromSide: Side,
-  toSide: Side,
-  arrowMode: "end" | "both"
-): void {
+  arrowMode: "none" | "end" | "both",
+  connectorType: "straight" | "elbow" | "curve" = "straight"
+): PowerPoint.Shape {
   const w = p2.x - p1.x;
   const h = p2.y - p1.y;
-  if (Math.abs(w) > 0.5 || Math.abs(h) > 0.5) {
-    const line = slide.shapes.addLine("elbow" as PowerPoint.ConnectorType, {
-      left: p1.x, top: p1.y,
-      width: Math.abs(w) < 0.5 ? 0.5 : w,
-      height: Math.abs(h) < 0.5 ? 0.5 : h
-    });
-    line.lineFormat.weight = LINE_WEIGHT;
-    line.lineFormat.color = LINE_COLOR;
+  const line = slide.shapes.addLine(connectorType as PowerPoint.ConnectorType, {
+    left: p1.x, top: p1.y,
+    width: Math.abs(w) < 0.5 ? 0.5 : w,
+    height: Math.abs(h) < 0.5 ? 0.5 : h
+  });
+  line.lineFormat.weight = LINE_WEIGHT;
+  line.lineFormat.color = LINE_COLOR;
+  if (arrowMode !== "none") {
+    line.name = `${ARROW_NAME_PREFIX}_${arrowMode.toUpperCase()}`;
+  }
+  return line;
+}
+
+function computeEdgeGeometry(
+  fromRect: Rect,
+  toRect: Rect,
+  defaultSides: { from: Side; to: Side }
+): { p1: { x: number; y: number }; p2: { x: number; y: number }; connectorType: "straight" | "elbow" } {
+  const fromCenterX = fromRect.left + fromRect.width / 2;
+  const toCenterX = toRect.left + toRect.width / 2;
+  const horizontalOffset = Math.abs(fromCenterX - toCenterX);
+
+  if (horizontalOffset < 5) {
+    return {
+      p1: midpoint(fromRect, defaultSides.from),
+      p2: midpoint(toRect, defaultSides.to),
+      connectorType: "straight"
+    };
   }
 
-  const toDirMap: Record<Side, "down" | "up" | "left" | "right"> = {
-    top: "down", bottom: "up", left: "right", right: "left"
+  return {
+    p1: midpoint(fromRect, defaultSides.from),
+    p2: midpoint(toRect, defaultSides.to),
+    connectorType: "elbow"
   };
-  const fromDirMap: Record<Side, "down" | "up" | "left" | "right"> = {
-    top: "up", bottom: "down", left: "left", right: "right"
-  };
-
-  if (arrowMode === "end" || arrowMode === "both") {
-    drawArrowHead(slide, p2.x, p2.y, toDirMap[toSide]);
-  }
-  if (arrowMode === "both") {
-    drawArrowHead(slide, p1.x, p1.y, fromDirMap[fromSide]);
-  }
 }
 
 export const createDiagram: ToolHandler = async (input) => {
@@ -430,24 +416,13 @@ export const createDiagram: ToolHandler = async (input) => {
       rectMap[node.id] = { left: p.left, top: p.top, width: p.width, height: p.height };
     }
 
-    // edges
     for (const e of edges) {
       const fr = rectMap[e.from];
       const tr = rectMap[e.to];
       if (!fr || !tr) continue;
       const arrow = e.arrow ?? "end";
-      const fromSide = edgeSides.from;
-      const toSide = edgeSides.to;
-      const p1 = midpoint(fr, fromSide);
-      const p2 = midpoint(tr, toSide);
-
-      if (arrow === "none") {
-        slide.shapes.addLine("elbow" as PowerPoint.ConnectorType, {
-          left: p1.x, top: p1.y, width: p2.x - p1.x, height: p2.y - p1.y
-        });
-      } else {
-        drawOrthogonalArrowPath(slide, p1, p2, fromSide, toSide, arrow);
-      }
+      const { p1, p2, connectorType } = computeEdgeGeometry(fr, tr, edgeSides);
+      drawArrowLine(slide, p1, p2, arrow, connectorType);
     }
     await ctx.sync();
 

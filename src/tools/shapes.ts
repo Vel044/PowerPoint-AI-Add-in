@@ -1,5 +1,5 @@
 import { ToolHandler } from "../types";
-import { midpoint as edgeMidpoint, Side, drawOrthogonalArrowPath } from "./layout";
+import { midpoint as edgeMidpoint, Side, drawArrowLine } from "./layout";
 
 export async function resolveSlide(ctx: PowerPoint.RequestContext, slideId?: string, slideIndex?: number) {
   const slides = ctx.presentation.slides;
@@ -151,18 +151,11 @@ export const connectShapes: ToolHandler = async (input) => {
     const p1 = edgeMidpoint(from, fromSide);
     const p2 = edgeMidpoint(to, toSide);
 
-    if (arrow === "none") {
-      const line = slide.shapes.addLine("elbow" as PowerPoint.ConnectorType, {
-        left: p1.x, top: p1.y, width: p2.x - p1.x, height: p2.y - p1.y
-      });
-      line.load("id");
-      await ctx.sync();
-      return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}，elbow 线 (id=${line.id})`;
-    }
-
-    drawOrthogonalArrowPath(slide, p1, p2, fromSide, toSide, arrow);
+    const line = drawArrowLine(slide, p1, p2, arrow);
+    line.load("id");
     await ctx.sync();
-    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}，正交路径`;
+    const suffix = arrow === "none" ? "无箭头" : "已标记待 finalize_arrows 注入真箭头";
+    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide} (id=${line.id})，${suffix}`;
   });
 };
 

@@ -3,7 +3,7 @@ import { getCurrentContext, listSlides } from "./context";
 import { addSlide, deleteSlide } from "./slides";
 import { addGeometricShape, addLine, addTextBox, connectShapes, deleteShape, modifyShape } from "./shapes";
 import { createDiagram } from "./layout";
-import { applyPptxPatch, exportPptxXml } from "./ooxml";
+import { applyPptxPatch, exportPptxXml, finalizeArrows } from "./ooxml";
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -86,7 +86,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "connect_shapes",
-    description: "按形状 id 将两个现有形状的某条边中点用带箭头的连接线连起来。AI 不再自己算坐标。fromSide/toSide 指定连接哪一侧（top/bottom/left/right）。所有方向的连线都会自动生成带箭头的正交路径：正交方向用单个箭头形状，斜向方向用三段式路径（细矩形线段 + 箭头形状头）。arrow 默认 'end'。画完图后加新连接、或改现有图时用这个工具，不要再用 add_line 画裸线。",
+    description: "按形状 id 将两个现有形状的某条边中点用直线连起来。fromSide/toSide 指定连接哪一侧（top/bottom/left/right）。arrow 默认 'end'，此时直线会标记为待加箭头，用户确认布局后通过 finalize_arrows 注入 PowerPoint 原生真箭头。画完图后加新连接、或改现有图时用这个工具。",
     input_schema: {
       type: "object",
       properties: {
@@ -103,7 +103,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "create_diagram",
-    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点、连带箭头的连线。这是画图的首选工具 —— 不要自己逐个调用 add_geometric_shape + add_line 堆砌。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层，若节点带 level 则用之，否则按 edges 自动推断)/tree(按 edges 从根向下)。节点统一尺寸 160x60。返回每个节点的 shapeId 映射，可用于后续 modify_shape 微调。",
+    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点、连直线。箭头连线会被标记，用户确认布局后通过 finalize_arrows 注入 PowerPoint 原生真箭头。这是画图的首选工具。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
     input_schema: {
       type: "object",
       properties: {
@@ -204,6 +204,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       required: ["patches"]
     }
+  },
+  {
+    name: "finalize_arrows",
+    description: "把当前演示文稿里所有由 connect_shapes / create_diagram 生成的、标记为 CLAUDE_ARROW_* 的直线连接器，升级成 PowerPoint 原生的带箭头连接线（注入 <a:tailEnd type='triangle'/>）。产出新 .pptx 并触发浏览器下载。用户需要打开下载的新文件才能看到箭头效果。在画完流程图后、或用户要求加真箭头时调用此工具。",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
   }
 ];
 
@@ -220,5 +225,6 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   modify_shape: modifyShape,
   delete_shape: deleteShape,
   export_pptx_xml: exportPptxXml,
-  apply_pptx_patch: applyPptxPatch
+  apply_pptx_patch: applyPptxPatch,
+  finalize_arrows: finalizeArrows
 };
