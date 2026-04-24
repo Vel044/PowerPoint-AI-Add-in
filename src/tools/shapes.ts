@@ -1,5 +1,5 @@
 import { ToolHandler } from "../types";
-import { Side } from "./layout";
+import { Side, drawDirectLine, drawOrthogonalLine, sidePoint } from "./layout";
 
 export async function resolveSlide(ctx: PowerPoint.RequestContext, slideId?: string, slideIndex?: number) {
   const slides = ctx.presentation.slides;
@@ -108,20 +108,12 @@ interface ShapeRect {
   height: number;
 }
 
-function sideToPoint(rect: ShapeRect, side: Side): { x: number; y: number } {
-  switch (side) {
-    case "top": return { x: rect.left + rect.width / 2, y: rect.top };
-    case "right": return { x: rect.left + rect.width, y: rect.top + rect.height / 2 };
-    case "bottom": return { x: rect.left + rect.width / 2, y: rect.top + rect.height };
-    case "left": return { x: rect.left, y: rect.top + rect.height / 2 };
-  }
-}
-
 export const connectShapes: ToolHandler = async (input) => {
   const fromShapeId = String(input.fromShapeId ?? "");
   const toShapeId = String(input.toShapeId ?? "");
   const fromSide = (input.fromSide as Side) ?? "right";
   const toSide = (input.toSide as Side) ?? "left";
+  const mode = (input.mode as string) ?? "orthogonal";
   if (!fromShapeId || !toShapeId) throw new Error("缺少 fromShapeId 或 toShapeId");
 
   return await PowerPoint.run(async (ctx) => {
@@ -149,42 +141,16 @@ export const connectShapes: ToolHandler = async (input) => {
         throw new Error(`形状 ${id} 的位置属性读取失败 (left=${r.left}, top=${r.top}, w=${r.width}, h=${r.height})。可能是占位符或母版继承的形状，无法作为连接端点。`);
       }
     }
-    const p1 = sideToPoint(shapes[fromShapeId], fromSide);
-    const p2 = sideToPoint(shapes[toShapeId], toSide);
-    const dx = Math.abs(p2.x - p1.x);
-    const dy = Math.abs(p2.y - p1.y);
+    const p1 = sidePoint(shapes[fromShapeId], fromSide);
+    const p2 = sidePoint(shapes[toShapeId], toSide);
 
-    if (dx < 2 || dy < 2) {
-      // Aligned: single straight line
-      const line = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-        left: p1.x, top: p1.y, width: p2.x - p1.x, height: p2.y - p1.y,
-      });
-      line.lineFormat.color = "#333333";
-      line.lineFormat.weight = 1.5;
+    if (mode === "direct") {
+      drawDirectLine(slide, p1.x, p1.y, p2.x, p2.y);
     } else {
-      // Not aligned: 3-segment orthogonal polyline
-      const midX = p1.x + (p2.x - p1.x) / 2;
-      // Segment 1: horizontal from p1 to midX
-      const seg1 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-        left: p1.x, top: p1.y, width: midX - p1.x, height: 0,
-      });
-      seg1.lineFormat.color = "#333333";
-      seg1.lineFormat.weight = 1.5;
-      // Segment 2: vertical from midY(p1.y) to p2.y
-      const seg2 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-        left: midX, top: p1.y, width: 0, height: p2.y - p1.y,
-      });
-      seg2.lineFormat.color = "#333333";
-      seg2.lineFormat.weight = 1.5;
-      // Segment 3: horizontal from midX to p2
-      const seg3 = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-        left: midX, top: p2.y, width: p2.x - midX, height: 0,
-      });
-      seg3.lineFormat.color = "#333333";
-      seg3.lineFormat.weight = 1.5;
+      drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, fromSide);
     }
     await ctx.sync();
-    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（横平竖直折线，不带箭头、不跟随形状移动）`;
+    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "横平竖直"}，不带箭头、不跟随形状移动）`;
   });
 };
 

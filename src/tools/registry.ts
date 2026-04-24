@@ -87,7 +87,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "connect_shapes",
-    description: "在当前幻灯片上绘制一条纯直线连接两个形状（受 Office.js 限制，无法加箭头、也不会随形状移动自动跟随）。fromSide/toSide 指定起止边中点（top/bottom/left/right）。",
+    description: "连接两个形状。mode=\"orthogonal\" 画横平竖直折线（L 形），mode=\"direct\" 画直连线。fromSide/toSide 指定起止形状的哪条边中点。",
     input_schema: {
       type: "object",
       properties: {
@@ -95,6 +95,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         fromSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "从哪一条边中点出发" },
         toShapeId: { type: "string", description: "终点形状 id" },
         toSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "连到哪一条边中点" },
+        mode: { type: "string", enum: ["orthogonal", "direct"], description: "orthogonal=横平竖直折线（默认），direct=直连线" },
         slideId: { type: "string" },
         slideIndex: { type: "number" }
       },
