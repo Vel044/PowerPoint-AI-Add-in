@@ -3,7 +3,8 @@ import { getCurrentContext, listSlides } from "./context";
 import { addSlide, deleteSlide } from "./slides";
 import { addGeometricShape, addLine, addTextBox, connectShapes, deleteShape, modifyShape } from "./shapes";
 import { createDiagram } from "./layout";
-import { applyPptxPatch, exportPptxXml, finalizeArrows } from "./ooxml";
+import { applyPptxPatch, exportPptxXml } from "./ooxml";
+import { reviewSlide } from "./review";
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -86,7 +87,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "connect_shapes",
-    description: "按形状 id 将两个现有形状的某条边中点用直线连起来。fromSide/toSide 指定连接哪一侧（top/bottom/left/right）。arrow 默认 'end'，此时直线会标记为待加箭头，用户确认布局后通过 finalize_arrows 注入 PowerPoint 原生真箭头。画完图后加新连接、或改现有图时用这个工具。",
+    description: "在当前幻灯片上绘制一条纯直线连接两个形状（受 Office.js 限制，无法加箭头、也不会随形状移动自动跟随）。fromSide/toSide 指定起止边中点（top/bottom/left/right）。",
     input_schema: {
       type: "object",
       properties: {
@@ -94,7 +95,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         fromSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "从哪一条边中点出发" },
         toShapeId: { type: "string", description: "终点形状 id" },
         toSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "连到哪一条边中点" },
-        arrow: { type: "string", enum: ["none", "end", "both"], description: "箭头方向，默认 end" },
         slideId: { type: "string" },
         slideIndex: { type: "number" }
       },
@@ -103,7 +103,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "create_diagram",
-    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点、连直线。箭头连线会被标记，用户确认布局后通过 finalize_arrows 注入 PowerPoint 原生真箭头。这是画图的首选工具。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
+    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点、用纯直线连接（受 Office.js 限制，连线无箭头、不跟随移动）。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
     input_schema: {
       type: "object",
       properties: {
@@ -127,8 +127,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             type: "object",
             properties: {
               from: { type: "string" },
-              to: { type: "string" },
-              arrow: { type: "string", enum: ["none", "end", "both"], description: "箭头方向，默认 end" }
+              to: { type: "string" }
             },
             required: ["from", "to"]
           }
@@ -206,9 +205,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "finalize_arrows",
-    description: "把当前演示文稿里所有由 connect_shapes / create_diagram 生成的、标记为 CLAUDE_ARROW_* 的直线连接器，升级成 PowerPoint 原生的带箭头连接线（注入 <a:tailEnd type='triangle'/>）。产出新 .pptx 并触发浏览器下载。用户需要打开下载的新文件才能看到箭头效果。在画完流程图后、或用户要求加真箭头时调用此工具。",
-    input_schema: { type: "object", properties: {}, additionalProperties: false }
+    name: "review_slide",
+    description: "截取当前幻灯片的截图，发给视觉模型做视觉检查。返回审查结果（布局问题、重叠、歪斜、文字溢出等）。画完图/做完修改后应调用此工具检查结果，如果发现问题可以立即修正。",
+    input_schema: {
+      type: "object",
+      properties: {
+        slideId: { type: "string" },
+        slideIndex: { type: "number" },
+        question: { type: "string", description: "自定义审查问题，默认检查布局/重叠/连线歪斜" }
+      }
+    }
   }
 ];
 
@@ -226,5 +232,5 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   delete_shape: deleteShape,
   export_pptx_xml: exportPptxXml,
   apply_pptx_patch: applyPptxPatch,
-  finalize_arrows: finalizeArrows
+  review_slide: reviewSlide
 };

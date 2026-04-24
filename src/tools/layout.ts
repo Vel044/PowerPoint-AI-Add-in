@@ -3,13 +3,9 @@ import { resolveSlide } from "./shapes";
 
 type LayoutMode = "vertical" | "horizontal" | "layered" | "tree";
 type NodeShape = "rectangle" | "roundRectangle" | "diamond" | "ellipse" | "flowChartTerminator" | "flowChartProcess" | "flowChartDecision";
-type ArrowMode = "none" | "end" | "both";
 export type Side = "top" | "bottom" | "left" | "right";
 
 export interface Rect { left: number; top: number; width: number; height: number; }
-
-const LINE_COLOR = "#333333";
-const LINE_WEIGHT = 1.5;
 
 interface DiagramNode {
   id: string;
@@ -21,7 +17,6 @@ interface DiagramNode {
 interface DiagramEdge {
   from: string;
   to: string;
-  arrow?: ArrowMode;
 }
 
 interface Canvas {
@@ -341,54 +336,6 @@ function layoutNodes(
   return { placed, edgeSides: { from: "bottom", to: "top" } };
 }
 
-export const ARROW_NAME_PREFIX = "CLAUDE_ARROW";
-
-export function drawArrowLine(
-  slide: PowerPoint.Slide,
-  p1: { x: number; y: number },
-  p2: { x: number; y: number },
-  arrowMode: "none" | "end" | "both",
-  connectorType: "straight" | "elbow" | "curve" = "straight"
-): PowerPoint.Shape {
-  const w = p2.x - p1.x;
-  const h = p2.y - p1.y;
-  const line = slide.shapes.addLine(connectorType as PowerPoint.ConnectorType, {
-    left: p1.x, top: p1.y,
-    width: Math.abs(w) < 0.5 ? 0.5 : w,
-    height: Math.abs(h) < 0.5 ? 0.5 : h
-  });
-  line.lineFormat.weight = LINE_WEIGHT;
-  line.lineFormat.color = LINE_COLOR;
-  if (arrowMode !== "none") {
-    line.name = `${ARROW_NAME_PREFIX}_${arrowMode.toUpperCase()}`;
-  }
-  return line;
-}
-
-function computeEdgeGeometry(
-  fromRect: Rect,
-  toRect: Rect,
-  defaultSides: { from: Side; to: Side }
-): { p1: { x: number; y: number }; p2: { x: number; y: number }; connectorType: "straight" | "elbow" } {
-  const fromCenterX = fromRect.left + fromRect.width / 2;
-  const toCenterX = toRect.left + toRect.width / 2;
-  const horizontalOffset = Math.abs(fromCenterX - toCenterX);
-
-  if (horizontalOffset < 5) {
-    return {
-      p1: midpoint(fromRect, defaultSides.from),
-      p2: midpoint(toRect, defaultSides.to),
-      connectorType: "straight"
-    };
-  }
-
-  return {
-    p1: midpoint(fromRect, defaultSides.from),
-    p2: midpoint(toRect, defaultSides.to),
-    connectorType: "elbow"
-  };
-}
-
 export const createDiagram: ToolHandler = async (input) => {
   const layout = (input.layout as LayoutMode) ?? "vertical";
   const nodes = (input.nodes as DiagramNode[]) ?? [];
@@ -401,8 +348,8 @@ export const createDiagram: ToolHandler = async (input) => {
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
     const idMap: Record<string, string> = {};
-    const rectMap: Record<string, { left: number; top: number; width: number; height: number }> = {};
 
+    // 1. Create node shapes
     for (const node of nodes) {
       const p = placed.get(node.id)!;
       const shapeType = (node.shape ?? "rectangle") as PowerPoint.GeometricShapeType;
@@ -413,29 +360,33 @@ export const createDiagram: ToolHandler = async (input) => {
       shape.load("id");
       await ctx.sync();
       idMap[node.id] = shape.id;
-      rectMap[node.id] = { left: p.left, top: p.top, width: p.width, height: p.height };
     }
 
+    // 2. Draw edges as plain straight lines (no arrowheads, no dynamic following)
     for (const e of edges) {
-      const fr = rectMap[e.from];
-      const tr = rectMap[e.to];
-      if (!fr || !tr) continue;
-      const arrow = e.arrow ?? "end";
-      const { p1, p2, connectorType } = computeEdgeGeometry(fr, tr, edgeSides);
-      drawArrowLine(slide, p1, p2, arrow, connectorType);
+      const a = placed.get(e.from);
+      const b = placed.get(e.to);
+      if (!a || !b) continue;
+      const p1 = sidePoint(a, edgeSides.from);
+      const p2 = sidePoint(b, edgeSides.to);
+      const line = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+        left: p1.x, top: p1.y, width: p2.x - p1.x, height: p2.y - p1.y,
+      });
+      line.lineFormat.color = "#333333";
+      line.lineFormat.weight = 1.5;
     }
     await ctx.sync();
 
     const mapStr = Object.entries(idMap).map(([k, v]) => `${k}=${v}`).join(", ");
-    return `已创建图：${nodes.length} 节点、${edges.length} 连线。节点 id 映射: ${mapStr}`;
+    return `已创建图：${nodes.length} 节点、${edges.length} 连线（纯直线，不带箭头）。节点 id 映射: ${mapStr}`;
   });
 };
 
-export function midpoint(r: { left: number; top: number; width: number; height: number }, side: Side) {
+function sidePoint(p: Placed, side: Side): { x: number; y: number } {
   switch (side) {
-    case "top": return { x: r.left + r.width / 2, y: r.top };
-    case "bottom": return { x: r.left + r.width / 2, y: r.top + r.height };
-    case "left": return { x: r.left, y: r.top + r.height / 2 };
-    case "right": return { x: r.left + r.width, y: r.top + r.height / 2 };
+    case "top": return { x: p.left + p.width / 2, y: p.top };
+    case "right": return { x: p.left + p.width, y: p.top + p.height / 2 };
+    case "bottom": return { x: p.left + p.width / 2, y: p.top + p.height };
+    case "left": return { x: p.left, y: p.top + p.height / 2 };
   }
 }

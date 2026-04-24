@@ -1,5 +1,5 @@
 import { ToolHandler } from "../types";
-import { midpoint as edgeMidpoint, Side, drawArrowLine } from "./layout";
+import { Side } from "./layout";
 
 export async function resolveSlide(ctx: PowerPoint.RequestContext, slideId?: string, slideIndex?: number) {
   const slides = ctx.presentation.slides;
@@ -108,32 +108,13 @@ interface ShapeRect {
   height: number;
 }
 
-async function findShapesByIds(
-  ctx: PowerPoint.RequestContext,
-  ids: string[]
-): Promise<{ slide: PowerPoint.Slide; shapes: Record<string, ShapeRect> }> {
-  const slides = ctx.presentation.slides;
-  slides.load("items/id");
-  await ctx.sync();
-  const remaining = new Set(ids);
-  const found: Record<string, ShapeRect> = {};
-  let targetSlide: PowerPoint.Slide | null = null;
-  for (const s of slides.items) {
-    const shapes = s.shapes;
-    shapes.load("items/id,items/left,items/top,items/width,items/height");
-    await ctx.sync();
-    for (const sh of shapes.items) {
-      if (remaining.has(sh.id)) {
-        found[sh.id] = { id: sh.id, left: sh.left, top: sh.top, width: sh.width, height: sh.height };
-        remaining.delete(sh.id);
-        targetSlide = s;
-      }
-    }
-    if (remaining.size === 0) break;
+function sideToPoint(rect: ShapeRect, side: Side): { x: number; y: number } {
+  switch (side) {
+    case "top": return { x: rect.left + rect.width / 2, y: rect.top };
+    case "right": return { x: rect.left + rect.width, y: rect.top + rect.height / 2 };
+    case "bottom": return { x: rect.left + rect.width / 2, y: rect.top + rect.height };
+    case "left": return { x: rect.left, y: rect.top + rect.height / 2 };
   }
-  if (remaining.size > 0) throw new Error(`未找到形状: ${[...remaining].join(", ")}`);
-  if (!targetSlide) throw new Error("内部错误：未找到形状所在幻灯片");
-  return { slide: targetSlide, shapes: found };
 }
 
 export const connectShapes: ToolHandler = async (input) => {
@@ -141,21 +122,45 @@ export const connectShapes: ToolHandler = async (input) => {
   const toShapeId = String(input.toShapeId ?? "");
   const fromSide = (input.fromSide as Side) ?? "right";
   const toSide = (input.toSide as Side) ?? "left";
-  const arrow = (input.arrow as "none" | "end" | "both") ?? "end";
   if (!fromShapeId || !toShapeId) throw new Error("缺少 fromShapeId 或 toShapeId");
 
   return await PowerPoint.run(async (ctx) => {
-    const { slide, shapes } = await findShapesByIds(ctx, [fromShapeId, toShapeId]);
-    const from = shapes[fromShapeId];
-    const to = shapes[toShapeId];
-    const p1 = edgeMidpoint(from, fromSide);
-    const p2 = edgeMidpoint(to, toSide);
-
-    const line = drawArrowLine(slide, p1, p2, arrow);
-    line.load("id");
+    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const shapeColl = slide.shapes;
+    shapeColl.load("items/id");
     await ctx.sync();
-    const suffix = arrow === "none" ? "无箭头" : "已标记待 finalize_arrows 注入真箭头";
-    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide} (id=${line.id})，${suffix}`;
+    const idSet = new Set(shapeColl.items.map((s) => s.id));
+    const missing = [fromShapeId, toShapeId].filter((id) => !idSet.has(id));
+    if (missing.length > 0) {
+      throw new Error(`当前幻灯片（id=${slide.id}）上未找到形状: ${missing.join(", ")}。请先调用 get_current_context 确认形状 ID 与所在幻灯片，或传入 slideIndex/slideId。`);
+    }
+    const fromShape = slide.shapes.getItem(fromShapeId);
+    const toShape = slide.shapes.getItem(toShapeId);
+    fromShape.load("id,left,top,width,height");
+    toShape.load("id,left,top,width,height");
+    await ctx.sync();
+    const shapes: Record<string, ShapeRect> = {
+      [fromShapeId]: { id: fromShapeId, left: fromShape.left, top: fromShape.top, width: fromShape.width, height: fromShape.height },
+      [toShapeId]: { id: toShapeId, left: toShape.left, top: toShape.top, width: toShape.width, height: toShape.height },
+    };
+    for (const id of [fromShapeId, toShapeId]) {
+      const r = shapes[id];
+      if (typeof r.left !== "number" || typeof r.top !== "number" || typeof r.width !== "number" || typeof r.height !== "number") {
+        throw new Error(`形状 ${id} 的位置属性读取失败 (left=${r.left}, top=${r.top}, w=${r.width}, h=${r.height})。可能是占位符或母版继承的形状，无法作为连接端点。`);
+      }
+    }
+    const p1 = sideToPoint(shapes[fromShapeId], fromSide);
+    const p2 = sideToPoint(shapes[toShapeId], toSide);
+    const line = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+      left: p1.x,
+      top: p1.y,
+      width: p2.x - p1.x,
+      height: p2.y - p1.y,
+    });
+    line.lineFormat.color = "#333333";
+    line.lineFormat.weight = 1.5;
+    await ctx.sync();
+    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（纯直线，不带箭头、不跟随形状移动）`;
   });
 };
 

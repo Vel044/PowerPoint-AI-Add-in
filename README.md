@@ -9,7 +9,7 @@ cp config/providers.example.json config/providers.json  # 若尚未创建
 # 编辑 config/providers.json，填入 ANTHROPIC_AUTH_TOKEN
 npm run sideload     # 自动把 manifest.xml 注册到 Mac PowerPoint 并启动
 npm run dev          # 另开终端：HTTPS dev server @ https://localhost:3000
-
+lsof -ti:3001 | xargs kill -9
 ```
 
 启动后 PowerPoint 的「开始」选项卡会出现「打开 AI 助手」按钮，点击即可在右侧调出任务窗格。
