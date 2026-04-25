@@ -114,6 +114,7 @@ export const connectShapes: ToolHandler = async (input) => {
   const fromSide = (input.fromSide as Side) ?? "right";
   const toSide = (input.toSide as Side) ?? "left";
   const mode = (input.mode as string) ?? "orthogonal";
+  const arrow = ((input.arrow as string) ?? "end") === "none" ? "none" : "end";
   if (!fromShapeId || !toShapeId) throw new Error("缺少 fromShapeId 或 toShapeId");
 
   return await PowerPoint.run(async (ctx) => {
@@ -144,13 +145,14 @@ export const connectShapes: ToolHandler = async (input) => {
     const p1 = sidePoint(shapes[fromShapeId], fromSide);
     const p2 = sidePoint(shapes[toShapeId], toSide);
 
+    let connectorShapes = 0;
     if (mode === "direct") {
-      drawDirectLine(slide, p1.x, p1.y, p2.x, p2.y);
+      connectorShapes = drawDirectLine(slide, p1.x, p1.y, p2.x, p2.y, { arrow });
     } else {
-      drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, fromSide);
+      connectorShapes = drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, fromSide, toSide, { arrow });
     }
     await ctx.sync();
-    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "横平竖直"}，不带箭头、不跟随形状移动）`;
+    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "横平竖直"}，${arrow === "end" ? "带末端箭头" : "无箭头"}，${connectorShapes} 个几何形状，不跟随形状移动）`;
   });
 };
 

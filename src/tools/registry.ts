@@ -70,7 +70,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "add_line",
-    description: "在幻灯片上添加一条线/箭头连接线，用来连接两个形状表达调用/数据流向。lineType 支持：straight、elbow、curved。坐标以 (left, top) 为起点，(left+width, top+height) 为终点。",
+    description: "在幻灯片上添加一条原生线条。连接两个形状表达调用/数据流向时优先用 connect_shapes 或 create_diagram。lineType 支持：straight、elbow、curved。坐标以 (left, top) 为起点，(left+width, top+height) 为终点。",
     input_schema: {
       type: "object",
       properties: {
@@ -87,7 +87,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "connect_shapes",
-    description: "连接两个形状。mode=\"orthogonal\" 画横平竖直折线（L 形），mode=\"direct\" 画直连线。fromSide/toSide 指定起止形状的哪条边中点。",
+    description: "连接两个形状。mode=\"orthogonal\" 画贴边中点、尽量横平竖直的几何连接器（默认），mode=\"direct\" 画直连几何连接器。fromSide/toSide 指定起止形状的哪条边中点。连接器默认带末端箭头，但不会随形状移动自动重连。",
     input_schema: {
       type: "object",
       properties: {
@@ -96,6 +96,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         toShapeId: { type: "string", description: "终点形状 id" },
         toSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "连到哪一条边中点" },
         mode: { type: "string", enum: ["orthogonal", "direct"], description: "orthogonal=横平竖直折线（默认），direct=直连线" },
+        arrow: { type: "string", enum: ["none", "end"], description: "end=末端箭头（默认），none=无箭头" },
         slideId: { type: "string" },
         slideIndex: { type: "number" }
       },
@@ -104,7 +105,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "create_diagram",
-    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点、用纯直线连接（受 Office.js 限制，连线无箭头、不跟随移动）。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
+    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点，并用贴边中点、尽量横平竖直的几何连接器连接，默认带末端箭头；连接器不会随形状移动自动重连。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
     input_schema: {
       type: "object",
       properties: {

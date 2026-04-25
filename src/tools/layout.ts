@@ -37,6 +37,194 @@ interface Placed {
 const DEFAULT_CANVAS: Canvas = { left: 40, top: 80, width: 880, height: 420 };
 const DEFAULT_NODE_W = 160;
 const DEFAULT_NODE_H = 60;
+const CONNECTOR_COLOR = "#2F5597";
+const CONNECTOR_THICKNESS = 2;
+const CONNECTOR_STUB = 18;
+const ARROW_SIZE = 12;
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface ConnectorOptions {
+  arrow?: "none" | "end";
+  color?: string;
+  thickness?: number;
+  stub?: number;
+}
+
+function directionForSide(side: Side): Point {
+  switch (side) {
+    case "top": return { x: 0, y: -1 };
+    case "bottom": return { x: 0, y: 1 };
+    case "left": return { x: -1, y: 0 };
+    case "right": return { x: 1, y: 0 };
+  }
+}
+
+function pointsEqual(a: Point, b: Point): boolean {
+  return Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5;
+}
+
+function pushPoint(points: Point[], point: Point): void {
+  const last = points[points.length - 1];
+  if (!last || !pointsEqual(last, point)) points.push(point);
+}
+
+function styleConnectorShape(shape: PowerPoint.Shape, color: string): void {
+  shape.fill.setSolidColor(color);
+  shape.lineFormat.visible = false;
+}
+
+function addSegmentShape(
+  slide: PowerPoint.Slide,
+  start: Point,
+  end: Point,
+  color: string,
+  thickness: number,
+): boolean {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.5) return false;
+
+  let shape: PowerPoint.Shape;
+  if (Math.abs(dy) < 0.5) {
+    shape = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
+      left: Math.min(start.x, end.x),
+      top: start.y - thickness / 2,
+      width: Math.abs(dx),
+      height: thickness,
+    });
+  } else if (Math.abs(dx) < 0.5) {
+    shape = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
+      left: start.x - thickness / 2,
+      top: Math.min(start.y, end.y),
+      width: thickness,
+      height: Math.abs(dy),
+    });
+  } else {
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    shape = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
+      left: (start.x + end.x) / 2 - length / 2,
+      top: (start.y + end.y) / 2 - thickness / 2,
+      width: length,
+      height: thickness,
+    });
+    shape.rotation = angle;
+  }
+
+  styleConnectorShape(shape, color);
+  return true;
+}
+
+function addArrowHead(
+  slide: PowerPoint.Slide,
+  tip: Point,
+  previous: Point,
+  color: string,
+): boolean {
+  const dx = tip.x - previous.x;
+  const dy = tip.y - previous.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.5) return false;
+
+  const ux = dx / length;
+  const uy = dy / length;
+  const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+  const center = {
+    x: tip.x - ux * ARROW_SIZE / 2,
+    y: tip.y - uy * ARROW_SIZE / 2,
+  };
+  const shape = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.triangle, {
+    left: center.x - ARROW_SIZE / 2,
+    top: center.y - ARROW_SIZE / 2,
+    width: ARROW_SIZE,
+    height: ARROW_SIZE,
+  });
+  shape.rotation = angle + 90;
+  styleConnectorShape(shape, color);
+  return true;
+}
+
+function shortenFinalSegmentForArrow(points: Point[], arrowSize: number): Point[] {
+  if (points.length < 2) return points;
+  const result = points.slice();
+  const tip = result[result.length - 1];
+  const prev = result[result.length - 2];
+  const dx = tip.x - prev.x;
+  const dy = tip.y - prev.y;
+  const length = Math.hypot(dx, dy);
+  if (length <= arrowSize + 0.5) {
+    result.pop();
+    return result;
+  }
+  result[result.length - 1] = {
+    x: tip.x - dx / length * arrowSize,
+    y: tip.y - dy / length * arrowSize,
+  };
+  return result;
+}
+
+function orthogonalPoints(
+  start: Point,
+  end: Point,
+  exitSide: Side,
+  entrySide: Side,
+  stub: number,
+): Point[] {
+  const exitDir = directionForSide(exitSide);
+  const entryDir = directionForSide(entrySide);
+  const startOutside = {
+    x: start.x + exitDir.x * stub,
+    y: start.y + exitDir.y * stub,
+  };
+  const endOutside = {
+    x: end.x + entryDir.x * stub,
+    y: end.y + entryDir.y * stub,
+  };
+
+  const points: Point[] = [];
+  pushPoint(points, start);
+  pushPoint(points, startOutside);
+
+  if (Math.abs(startOutside.x - endOutside.x) >= 0.5 && Math.abs(startOutside.y - endOutside.y) >= 0.5) {
+    if (exitSide === "top" || exitSide === "bottom") {
+      pushPoint(points, { x: startOutside.x, y: endOutside.y });
+    } else {
+      pushPoint(points, { x: endOutside.x, y: startOutside.y });
+    }
+  }
+
+  pushPoint(points, endOutside);
+  pushPoint(points, end);
+  return points;
+}
+
+function drawConnectorPath(
+  slide: PowerPoint.Slide,
+  points: Point[],
+  options: ConnectorOptions = {},
+): number {
+  if (points.length < 2) return 0;
+  const color = options.color ?? CONNECTOR_COLOR;
+  const thickness = options.thickness ?? CONNECTOR_THICKNESS;
+  const arrow = options.arrow ?? "end";
+  const segmentPoints = arrow === "end" ? shortenFinalSegmentForArrow(points, ARROW_SIZE) : points;
+  let created = 0;
+
+  for (let i = 0; i < segmentPoints.length - 1; i++) {
+    if (addSegmentShape(slide, segmentPoints[i], segmentPoints[i + 1], color, thickness)) created++;
+  }
+  if (arrow === "end" && points.length >= 2) {
+    const tip = points[points.length - 1];
+    const prev = points[points.length - 2];
+    if (addArrowHead(slide, tip, prev, color)) created++;
+  }
+
+  return created;
+}
 
 // ── 画线工具：两个模式 ────────────────────────────────
 
@@ -46,47 +234,31 @@ const DEFAULT_NODE_H = 60;
 export function drawDirectLine(
   slide: PowerPoint.Slide,
   x1: number, y1: number, x2: number, y2: number,
-): void {
-  slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-    left: Math.min(x1, x2), top: Math.min(y1, y2),
-    width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
-  });
+  options: ConnectorOptions = {},
+): number {
+  return drawConnectorPath(slide, [{ x: x1, y: y1 }, { x: x2, y: y2 }], options);
 }
 
 /**
- * 模式 2 — 横平竖直：从 (x1,y1) 到 (x2,y2) 只走水平/垂直段（L 形两段折线）
- * 每段都用 addLine(straight) + 归一化坐标（width/height ≥ 0）
+ * 模式 2 — 横平竖直：从 (x1,y1) 到 (x2,y2) 只走水平/垂直段。
+ * 线段使用细矩形几何形状绘制，避免 addLine 在零宽/零高线段上的端点漂移。
  * exitSide 决定第一段的方向：top/bottom → 先垂直，left/right → 先水平
  */
 export function drawOrthogonalLine(
   slide: PowerPoint.Slide,
   x1: number, y1: number, x2: number, y2: number,
   exitSide: Side,
-): void {
-  if (Math.abs(x2 - x1) < 2 || Math.abs(y2 - y1) < 2) {
-    drawDirectLine(slide, x1, y1, x2, y2);
-    return;
-  }
-  const vert = exitSide === "top" || exitSide === "bottom";
-  if (vert) {
-    // 段1: 垂直 (x1,y1)→(x1,y2)
-    slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-      left: x1, top: Math.min(y1, y2), width: 0, height: Math.abs(y2 - y1),
-    });
-    // 段2: 水平 (x1,y2)→(x2,y2)
-    slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-      left: Math.min(x1, x2), top: y2, width: Math.abs(x2 - x1), height: 0,
-    });
-  } else {
-    // 段1: 水平 (x1,y1)→(x2,y1)
-    slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-      left: Math.min(x1, x2), top: y1, width: Math.abs(x2 - x1), height: 0,
-    });
-    // 段2: 垂直 (x2,y1)→(x2,y2)
-    slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
-      left: x2, top: Math.min(y1, y2), width: 0, height: Math.abs(y2 - y1),
-    });
-  }
+  entrySide: Side = exitSide === "top" ? "bottom" : exitSide === "bottom" ? "top" : exitSide === "left" ? "right" : "left",
+  options: ConnectorOptions = {},
+): number {
+  const points = orthogonalPoints(
+    { x: x1, y: y1 },
+    { x: x2, y: y2 },
+    exitSide,
+    entrySide,
+    options.stub ?? CONNECTOR_STUB,
+  );
+  return drawConnectorPath(slide, points, options);
 }
 
 // ── 布局算法 ──────────────────────────────────────────
@@ -307,6 +479,7 @@ export const createDiagram: ToolHandler = async (input) => {
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
     const idMap: Record<string, string> = {};
+    const actualPlaced = new Map<string, Placed>();
     const logLines: string[] = [`[createDiagram] layout=${layout} canvas=${JSON.stringify(canvas)}`];
     logLines.push(`[createDiagram] node positions: ${nodePositions}`);
 
@@ -321,14 +494,21 @@ export const createDiagram: ToolHandler = async (input) => {
       shape.load("id,left,top,width,height");
       await ctx.sync();
       idMap[node.id] = shape.id;
+      actualPlaced.set(node.id, {
+        node,
+        left: shape.left,
+        top: shape.top,
+        width: shape.width,
+        height: shape.height,
+      });
       logLines.push(`[createDiagram] node ${node.id}: planned=(${p.left.toFixed(1)},${p.top.toFixed(1)}) actual=(${shape.left},${shape.top}) id=${shape.id}`);
     }
 
-    // 2. 画连线（横平竖直模式）
+    // 2. 画连线（几何形状正交连接器）
     const edgeLogs: string[] = [];
     for (const e of edges) {
-      const a = placed.get(e.from);
-      const b = placed.get(e.to);
+      const a = actualPlaced.get(e.from);
+      const b = actualPlaced.get(e.to);
       if (!a || !b) continue;
 
       const children = childMap.get(e.from) ?? [];
@@ -337,8 +517,8 @@ export const createDiagram: ToolHandler = async (input) => {
       const p1 = sidePoint(a, sides.from);
       const p2 = sidePoint(b, sides.to);
 
-      drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, sides.from);
-      edgeLogs.push(`${e.from}→${e.to}: ${sides.from}→${sides.to} (${p1.x.toFixed(0)},${p1.y.toFixed(0)})→(${p2.x.toFixed(0)},${p2.y.toFixed(0)})`);
+      const connectorShapes = drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, sides.from, sides.to, { arrow: "end" });
+      edgeLogs.push(`${e.from}→${e.to}: ${sides.from}→${sides.to} (${p1.x.toFixed(0)},${p1.y.toFixed(0)})→(${p2.x.toFixed(0)},${p2.y.toFixed(0)}), shapes=${connectorShapes}`);
     }
     await ctx.sync();
     logLines.push(`[createDiagram] edges: ${edgeLogs.join(" | ")}`);
@@ -351,6 +531,6 @@ export const createDiagram: ToolHandler = async (input) => {
     }).catch(() => {});
 
     const mapStr = Object.entries(idMap).map(([k, v]) => `${k}=${v}`).join(", ");
-    return `已创建图：${nodes.length} 节点、${edges.length} 连线（横平竖直折线）。节点 id 映射: ${mapStr}`;
+    return `已创建图：${nodes.length} 节点、${edges.length} 连线（贴边中点的几何正交连接器）。节点 id 映射: ${mapStr}`;
   });
 };
