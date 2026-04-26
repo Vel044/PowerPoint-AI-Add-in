@@ -42,7 +42,7 @@ export const reviewSlide: ToolHandler = async (input, toolCtx) => {
 
     const config = await loadConfig();
     const provider = getActiveProvider(config);
-    const model = resolveModel(provider, "opus");
+    const model = resolveModel(provider, "sonnet");
     const base = provider.env.ANTHROPIC_BASE_URL.replace(/\/$/, "");
     const token = provider.env.ANTHROPIC_AUTH_TOKEN;
     if (!token) throw new Error("当前 Provider 未配置 ANTHROPIC_AUTH_TOKEN");
