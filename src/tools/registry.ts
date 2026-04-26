@@ -9,7 +9,7 @@ import { reviewSlide } from "./review";
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "get_current_context",
-    description: "读取当前 PowerPoint 上下文：总幻灯片数、当前选中的幻灯片索引/ID，以及选中的形状（含文字、位置、大小）。在任何修改操作之前都应先调用这个工具。",
+    description: "读取当前 PowerPoint 上下文：总幻灯片数、当前选中的幻灯片索引/ID、当前页 allShapes（id/name/type/text/left/top/width/height）、selectedShapes 和 occupiedBounds。在任何删除/修改/替换操作之前必须先调用这个工具，用当前页的 slideId + shapeId 操作。",
     input_schema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
@@ -87,7 +87,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "connect_shapes",
-    description: "连接两个形状。mode=\"orthogonal\" 画贴边中点、尽量横平竖直的几何连接器（默认），mode=\"direct\" 画直连几何连接器。fromSide/toSide 指定起止形状的哪条边中点。连接器默认带末端箭头，但不会随形状移动自动重连。",
+    description: "连接两个形状。mode=\"orthogonal\" 由工具计算贴边中点的横平竖直路径，并用多段原生 Straight connector 绘制（默认）；mode=\"direct\" 强制一段原生 Straight 直连。fromSide/toSide 指定起止形状的哪条边中点。arrow 参数保留，但当前源码开关默认关闭箭头头，不生成三角形。线条主体不做端点吸附，不会随形状移动自动重连。",
     input_schema: {
       type: "object",
       properties: {
@@ -95,7 +95,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         fromSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "从哪一条边中点出发" },
         toShapeId: { type: "string", description: "终点形状 id" },
         toSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "连到哪一条边中点" },
-        mode: { type: "string", enum: ["orthogonal", "direct"], description: "orthogonal=横平竖直折线（默认），direct=直连线" },
+        mode: { type: "string", enum: ["orthogonal", "direct"], description: "orthogonal=多段原生 Straight 正交路径（默认），direct=一段原生 Straight 直连" },
         arrow: { type: "string", enum: ["none", "end"], description: "end=末端箭头（默认），none=无箭头" },
         slideId: { type: "string" },
         slideIndex: { type: "number" }
@@ -105,7 +105,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "create_diagram",
-    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点，并用贴边中点、尽量横平竖直的几何连接器连接，默认带末端箭头；连接器不会随形状移动自动重连。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
+    description: "一次性生成一张完整的图（流程图/调用链/架构图等）。传入节点和连线的抽象描述，内部自动布局、创建节点，并用贴边中点的原生 PowerPoint Straight connector 线段连接；端点同 X/Y 时一段直线，否则由工具计算多段横平竖直路径，不使用 PowerPoint Elbow 自动路由。arrow 参数保留，但当前源码开关默认关闭箭头头，不生成三角形。线条主体不做端点吸附，不会随形状移动自动重连。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
     input_schema: {
       type: "object",
       properties: {
@@ -150,11 +150,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "modify_shape",
-    description: "按 shapeId 修改一个形状：文字、位置、大小。",
+    description: "在指定幻灯片（默认当前选中页）内按 shapeId 修改一个形状：文字、位置、大小。不会跨页搜索；删除/修改前必须先用 get_current_context 确认当前页 allShapes 里的 slideId + shapeId。",
     input_schema: {
       type: "object",
       properties: {
         shapeId: { type: "string" },
+        slideId: { type: "string" },
+        slideIndex: { type: "number" },
         text: { type: "string" },
         left: { type: "number" },
         top: { type: "number" },
@@ -166,10 +168,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "delete_shape",
-    description: "删除指定 shapeId 的形状。",
+    description: "在指定幻灯片（默认当前选中页）内删除指定 shapeId 的形状。不会跨页搜索；删除前必须先用 get_current_context 确认当前页 allShapes 里的 slideId + shapeId。返回删除前 bounds，可用于 create_diagram.canvas 原位替换。",
     input_schema: {
       type: "object",
-      properties: { shapeId: { type: "string" } },
+      properties: {
+        shapeId: { type: "string" },
+        slideId: { type: "string" },
+        slideIndex: { type: "number" }
+      },
       required: ["shapeId"]
     }
   },
@@ -208,7 +214,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "review_slide",
-    description: "截取当前幻灯片的截图，发给视觉模型做视觉检查。返回审查结果（布局问题、重叠、歪斜、文字溢出等）。画完图/做完修改后应调用此工具检查结果，如果发现问题可以立即修正。",
+    description: "截取当前幻灯片的截图，保存到本地 debug-artifacts/review-slide/（同时写入 JSON 元数据并在 tool result/终端日志返回路径），再发给视觉模型做视觉检查。返回审查结果（布局问题、重叠、歪斜、文字溢出等）。画完图/做完修改后应调用此工具检查结果，如果发现问题可以立即修正。",
     input_schema: {
       type: "object",
       properties: {

@@ -39,19 +39,27 @@ const DEFAULT_NODE_W = 160;
 const DEFAULT_NODE_H = 60;
 const CONNECTOR_COLOR = "#2F5597";
 const CONNECTOR_THICKNESS = 2;
-const CONNECTOR_STUB = 18;
 const ARROW_SIZE = 12;
+const CONNECTOR_STUB = 18;
+const CONNECTOR_EPSILON = 0.01;
+const ENABLE_CONNECTOR_ARROW_HEADS = false;
 
 interface Point {
   x: number;
   y: number;
 }
 
+export interface ConnectorDrawResult {
+  lineSegments: number;
+  arrows: number;
+  shapeCount: number;
+  arrowHeadsEnabled: boolean;
+}
+
 interface ConnectorOptions {
   arrow?: "none" | "end";
   color?: string;
   thickness?: number;
-  stub?: number;
 }
 
 function directionForSide(side: Side): Point {
@@ -72,12 +80,35 @@ function pushPoint(points: Point[], point: Point): void {
   if (!last || !pointsEqual(last, point)) points.push(point);
 }
 
+function areCollinear(a: Point, b: Point, c: Point): boolean {
+  return (Math.abs(a.x - b.x) < 0.5 && Math.abs(b.x - c.x) < 0.5)
+    || (Math.abs(a.y - b.y) < 0.5 && Math.abs(b.y - c.y) < 0.5);
+}
+
+function simplifyPath(points: Point[]): Point[] {
+  const deduped: Point[] = [];
+  for (const p of points) pushPoint(deduped, p);
+  const simplified: Point[] = [];
+  for (const p of deduped) {
+    simplified.push(p);
+    while (simplified.length >= 3) {
+      const n = simplified.length;
+      const a = simplified[n - 3];
+      const b = simplified[n - 2];
+      const c = simplified[n - 1];
+      if (!areCollinear(a, b, c)) break;
+      simplified.splice(n - 2, 1);
+    }
+  }
+  return simplified;
+}
+
 function styleConnectorShape(shape: PowerPoint.Shape, color: string): void {
   shape.fill.setSolidColor(color);
   shape.lineFormat.visible = false;
 }
 
-function addSegmentShape(
+function addStraightConnectorSegment(
   slide: PowerPoint.Slide,
   start: Point,
   end: Point,
@@ -89,33 +120,17 @@ function addSegmentShape(
   const length = Math.hypot(dx, dy);
   if (length < 0.5) return false;
 
-  let shape: PowerPoint.Shape;
-  if (Math.abs(dy) < 0.5) {
-    shape = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
-      left: Math.min(start.x, end.x),
-      top: start.y - thickness / 2,
-      width: Math.abs(dx),
-      height: thickness,
-    });
-  } else if (Math.abs(dx) < 0.5) {
-    shape = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
-      left: start.x - thickness / 2,
-      top: Math.min(start.y, end.y),
-      width: thickness,
-      height: Math.abs(dy),
-    });
-  } else {
-    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-    shape = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
-      left: (start.x + end.x) / 2 - length / 2,
-      top: (start.y + end.y) / 2 - thickness / 2,
-      width: length,
-      height: thickness,
-    });
-    shape.rotation = angle;
-  }
-
-  styleConnectorShape(shape, color);
+  const shape = slide.shapes.addLine(PowerPoint.ConnectorType.straight, {
+    left: start.x,
+    top: start.y,
+    width: Math.abs(dx) < 0.5 ? CONNECTOR_EPSILON : dx,
+    height: Math.abs(dy) < 0.5 ? CONNECTOR_EPSILON : dy,
+  });
+  shape.lineFormat.visible = true;
+  shape.lineFormat.color = color;
+  shape.lineFormat.weight = thickness;
+  shape.lineFormat.dashStyle = "Solid";
+  shape.lineFormat.style = "Single";
   return true;
 }
 
@@ -148,23 +163,15 @@ function addArrowHead(
   return true;
 }
 
-function shortenFinalSegmentForArrow(points: Point[], arrowSize: number): Point[] {
-  if (points.length < 2) return points;
-  const result = points.slice();
-  const tip = result[result.length - 1];
-  const prev = result[result.length - 2];
-  const dx = tip.x - prev.x;
-  const dy = tip.y - prev.y;
+function shortenEndForArrow(start: Point, end: Point, arrowSize: number): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
   const length = Math.hypot(dx, dy);
-  if (length <= arrowSize + 0.5) {
-    result.pop();
-    return result;
-  }
-  result[result.length - 1] = {
-    x: tip.x - dx / length * arrowSize,
-    y: tip.y - dy / length * arrowSize,
+  if (length <= arrowSize + 0.5) return start;
+  return {
+    x: end.x - dx / length * arrowSize,
+    y: end.y - dy / length * arrowSize,
   };
-  return result;
 }
 
 function orthogonalPoints(
@@ -174,6 +181,10 @@ function orthogonalPoints(
   entrySide: Side,
   stub: number,
 ): Point[] {
+  if (Math.abs(start.x - end.x) < 0.5 || Math.abs(start.y - end.y) < 0.5) {
+    return [start, end];
+  }
+
   const exitDir = directionForSide(exitSide);
   const entryDir = directionForSide(entrySide);
   const startOutside = {
@@ -199,31 +210,53 @@ function orthogonalPoints(
 
   pushPoint(points, endOutside);
   pushPoint(points, end);
-  return points;
+  return simplifyPath(points);
 }
 
 function drawConnectorPath(
   slide: PowerPoint.Slide,
   points: Point[],
   options: ConnectorOptions = {},
-): number {
-  if (points.length < 2) return 0;
+): ConnectorDrawResult {
+  const simplified = simplifyPath(points);
+  if (simplified.length < 2) {
+    return {
+      lineSegments: 0,
+      arrows: 0,
+      shapeCount: 0,
+      arrowHeadsEnabled: ENABLE_CONNECTOR_ARROW_HEADS,
+    };
+  }
+
   const color = options.color ?? CONNECTOR_COLOR;
   const thickness = options.thickness ?? CONNECTOR_THICKNESS;
   const arrow = options.arrow ?? "end";
-  const segmentPoints = arrow === "end" ? shortenFinalSegmentForArrow(points, ARROW_SIZE) : points;
-  let created = 0;
-
-  for (let i = 0; i < segmentPoints.length - 1; i++) {
-    if (addSegmentShape(slide, segmentPoints[i], segmentPoints[i + 1], color, thickness)) created++;
-  }
-  if (arrow === "end" && points.length >= 2) {
-    const tip = points[points.length - 1];
-    const prev = points[points.length - 2];
-    if (addArrowHead(slide, tip, prev, color)) created++;
+  const shouldDrawArrow = ENABLE_CONNECTOR_ARROW_HEADS && arrow === "end";
+  const linePoints = shouldDrawArrow ? simplified.slice() : simplified;
+  if (shouldDrawArrow && linePoints.length >= 2) {
+    const tip = linePoints[linePoints.length - 1];
+    const prev = linePoints[linePoints.length - 2];
+    linePoints[linePoints.length - 1] = shortenEndForArrow(prev, tip, ARROW_SIZE);
   }
 
-  return created;
+  let lineSegments = 0;
+  for (let i = 0; i < linePoints.length - 1; i++) {
+    if (addStraightConnectorSegment(slide, linePoints[i], linePoints[i + 1], color, thickness)) lineSegments++;
+  }
+
+  let arrows = 0;
+  if (shouldDrawArrow && simplified.length >= 2) {
+    const tip = simplified[simplified.length - 1];
+    const prev = linePoints[linePoints.length - 1];
+    arrows = addArrowHead(slide, tip, prev, color) ? 1 : 0;
+  }
+
+  return {
+    lineSegments,
+    arrows,
+    shapeCount: lineSegments + arrows,
+    arrowHeadsEnabled: ENABLE_CONNECTOR_ARROW_HEADS,
+  };
 }
 
 // ── 画线工具：两个模式 ────────────────────────────────
@@ -235,14 +268,13 @@ export function drawDirectLine(
   slide: PowerPoint.Slide,
   x1: number, y1: number, x2: number, y2: number,
   options: ConnectorOptions = {},
-): number {
+): ConnectorDrawResult {
   return drawConnectorPath(slide, [{ x: x1, y: y1 }, { x: x2, y: y2 }], options);
 }
 
 /**
- * 模式 2 — 横平竖直：从 (x1,y1) 到 (x2,y2) 只走水平/垂直段。
- * 线段使用细矩形几何形状绘制，避免 addLine 在零宽/零高线段上的端点漂移。
- * exitSide 决定第一段的方向：top/bottom → 先垂直，left/right → 先水平
+ * 模式 2 — 横平竖直：从 (x1,y1) 到 (x2,y2) 由代码计算正交路径。
+ * 每一段路径都使用原生 Straight connector，避免 PowerPoint Elbow 自动路由跑偏。
  */
 export function drawOrthogonalLine(
   slide: PowerPoint.Slide,
@@ -250,13 +282,13 @@ export function drawOrthogonalLine(
   exitSide: Side,
   entrySide: Side = exitSide === "top" ? "bottom" : exitSide === "bottom" ? "top" : exitSide === "left" ? "right" : "left",
   options: ConnectorOptions = {},
-): number {
+): ConnectorDrawResult {
   const points = orthogonalPoints(
     { x: x1, y: y1 },
     { x: x2, y: y2 },
     exitSide,
     entrySide,
-    options.stub ?? CONNECTOR_STUB,
+    CONNECTOR_STUB,
   );
   return drawConnectorPath(slide, points, options);
 }
@@ -504,8 +536,10 @@ export const createDiagram: ToolHandler = async (input) => {
       logLines.push(`[createDiagram] node ${node.id}: planned=(${p.left.toFixed(1)},${p.top.toFixed(1)}) actual=(${shape.left},${shape.top}) id=${shape.id}`);
     }
 
-    // 2. 画连线（几何形状正交连接器）
+    // 2. 画连线（受控正交路径，每段使用原生 Straight connector）
     const edgeLogs: string[] = [];
+    let lineSegments = 0;
+    let arrowHeads = 0;
     for (const e of edges) {
       const a = actualPlaced.get(e.from);
       const b = actualPlaced.get(e.to);
@@ -517,8 +551,10 @@ export const createDiagram: ToolHandler = async (input) => {
       const p1 = sidePoint(a, sides.from);
       const p2 = sidePoint(b, sides.to);
 
-      const connectorShapes = drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, sides.from, sides.to, { arrow: "end" });
-      edgeLogs.push(`${e.from}→${e.to}: ${sides.from}→${sides.to} (${p1.x.toFixed(0)},${p1.y.toFixed(0)})→(${p2.x.toFixed(0)},${p2.y.toFixed(0)}), shapes=${connectorShapes}`);
+      const connector = drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, sides.from, sides.to, { arrow: "end" });
+      lineSegments += connector.lineSegments;
+      arrowHeads += connector.arrows;
+      edgeLogs.push(`${e.from}→${e.to}: ${sides.from}→${sides.to} (${p1.x.toFixed(0)},${p1.y.toFixed(0)})→(${p2.x.toFixed(0)},${p2.y.toFixed(0)}), segments=${connector.lineSegments}, arrows=${connector.arrows}, shapes=${connector.shapeCount}`);
     }
     await ctx.sync();
     logLines.push(`[createDiagram] edges: ${edgeLogs.join(" | ")}`);
@@ -531,6 +567,6 @@ export const createDiagram: ToolHandler = async (input) => {
     }).catch(() => {});
 
     const mapStr = Object.entries(idMap).map(([k, v]) => `${k}=${v}`).join(", ");
-    return `已创建图：${nodes.length} 节点、${edges.length} 连线（贴边中点的几何正交连接器）。节点 id 映射: ${mapStr}`;
+    return `已创建图：${nodes.length} 节点、${edges.length} 连线（原生 Straight 线段=${lineSegments}；箭头头=${arrowHeads}，源码开关当前关闭）。节点 id 映射: ${mapStr}`;
   });
 };

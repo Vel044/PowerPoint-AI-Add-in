@@ -6,9 +6,6 @@ export const getCurrentContext: ToolHandler = async () => {
       const pres = ctx.presentation;
       const selectedSlides = pres.getSelectedSlides();
       selectedSlides.load("items/id");
-      const selectedShapes = pres.getSelectedShapes();
-      // 只加载最基本的属性，避免线条/连接器形状的某些属性导致 0x80070057
-      selectedShapes.load("id,name");
       const allSlides = pres.slides;
       allSlides.load("items/id");
       await ctx.sync();
@@ -16,60 +13,29 @@ export const getCurrentContext: ToolHandler = async () => {
       const slideIds = allSlides.items.map((s) => s.id);
       const currentSlideIds = selectedSlides.items.map((s) => s.id);
       const currentIndexes = currentSlideIds.map((id) => slideIds.indexOf(id));
+      const currentSlide = selectedSlides.items[0] ?? null;
+      const currentSlideId = currentSlide?.id ?? null;
+      const currentSlideIndex = currentSlideId ? slideIds.indexOf(currentSlideId) : null;
 
-      // 逐个形状收集属性，用 try-catch 包裹以应对线条/连接器的特殊属性
-      const shapes = [];
-      for (const s of selectedShapes.items) {
-        const info: Record<string, unknown> = {
-          id: s.id,
-          name: s.name
-        };
-
-        // 尝试获取 type，对于线条/连接器这可能失败
-        try {
-          info.type = (s as any).type;
-        } catch {
-          info.type = "unknown";
-        }
-
-        // 尝试获取位置和尺寸
-        for (const prop of ["left", "top", "width", "height"]) {
-          try {
-            info[prop] = (s as any)[prop];
-          } catch {
-            info[prop] = null;
-          }
-        }
-
-        // 判断是否为线条/连接器类型
-        const type = info.type as string;
-        if (type === "line" || type === "connector" || type === "unknown") {
-          info.text = "";
-          // 尝试获取连接器类型
-          try {
-            info.connectorType = (s as any).connectorType;
-          } catch {
-            info.connectorType = null;
-          }
-          try {
-            info.lineType = (s as any).lineType;
-          } catch {
-            info.lineType = null;
-          }
-        } else {
-          // 普通形状获取文本
-          info.text = safeText(s);
-        }
-
-        shapes.push(info);
-      }
+      const allShapes = currentSlide
+        ? (await collectShapeInfos(ctx, currentSlide.shapes)).map((shape) => ({
+            slideId: currentSlideId,
+            slideIndex: currentSlideIndex,
+            ...shape
+          }))
+        : [];
+      const selectedShapes = await collectSelectedShapeInfos(ctx, pres);
 
       return JSON.stringify(
         {
           totalSlides: slideIds.length,
           selectedSlideIds: currentSlideIds,
           selectedSlideIndexes: currentIndexes,
-          selectedShapes: shapes
+          currentSlideId,
+          currentSlideIndex,
+          occupiedBounds: computeOccupiedBounds(allShapes),
+          allShapes,
+          selectedShapes
         },
         null,
         2
@@ -88,30 +54,138 @@ export const getCurrentContext: ToolHandler = async () => {
   }
 };
 
-function getShapeType(shape: PowerPoint.Shape): string {
+type ShapeInfo = {
+  slideId?: string | null;
+  slideIndex?: number | null;
+  id: string;
+  name: string;
+  type: string | null;
+  text: string;
+  left: number | null;
+  top: number | null;
+  width: number | null;
+  height: number | null;
+};
+
+async function collectSelectedShapeInfos(ctx: PowerPoint.RequestContext, pres: PowerPoint.Presentation): Promise<ShapeInfo[]> {
   try {
-    return (shape as any).type as string;
+    const selectedShapes = pres.getSelectedShapes();
+    return await collectShapeInfos(ctx, selectedShapes);
   } catch {
-    return "unknown";
+    return [];
   }
 }
 
-function safeGet(shape: PowerPoint.Shape, prop: string): unknown {
+async function collectShapeInfos(
+  ctx: PowerPoint.RequestContext,
+  collection: { load: (propertyNames?: string | string[]) => unknown; items: PowerPoint.Shape[] }
+): Promise<ShapeInfo[]> {
   try {
-    return (shape as any)[prop];
+    collection.load("items/id,name");
+    await ctx.sync();
+  } catch {
+    return [];
+  }
+
+  const infos: ShapeInfo[] = [];
+  for (const shape of collection.items) {
+    infos.push(await collectShapeInfo(ctx, shape));
+  }
+  return infos;
+}
+
+async function collectShapeInfo(ctx: PowerPoint.RequestContext, shape: PowerPoint.Shape): Promise<ShapeInfo> {
+  const info: ShapeInfo = {
+    id: safeString(() => shape.id),
+    name: safeString(() => shape.name),
+    type: null,
+    text: "",
+    left: null,
+    top: null,
+    width: null,
+    height: null
+  };
+
+  try {
+    shape.load("id,name,type,left,top,width,height");
+    await ctx.sync();
+  } catch {
+    try {
+      shape.load("id,name,left,top,width,height");
+      await ctx.sync();
+    } catch {
+      // Keep already loaded id/name and leave geometry fields null.
+    }
+  }
+
+  info.id = safeString(() => shape.id) || info.id;
+  info.name = safeString(() => shape.name) || info.name;
+  info.type = safeValue(() => (shape as any).type) as string | null;
+  info.left = safeNumber(() => shape.left);
+  info.top = safeNumber(() => shape.top);
+  info.width = safeNumber(() => shape.width);
+  info.height = safeNumber(() => shape.height);
+  info.text = await safeText(ctx, shape);
+  return info;
+}
+
+function safeValue(read: () => unknown): unknown {
+  try {
+    return read();
   } catch {
     return null;
   }
 }
 
-function safeText(shape: PowerPoint.Shape): string {
+function safeString(read: () => unknown): string {
   try {
-    const tf = (shape as any).textFrame;
-    if (!tf) return "";
-    return tf.textRange?.text ?? "";
+    const value = read();
+    return typeof value === "string" ? value : "";
   } catch {
     return "";
   }
+}
+
+function safeNumber(read: () => unknown): number | null {
+  try {
+    const value = read();
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function safeText(ctx: PowerPoint.RequestContext, shape: PowerPoint.Shape): Promise<string> {
+  try {
+    const textRange = (shape as any).textFrame?.textRange;
+    if (!textRange) return "";
+    textRange.load("text");
+    await ctx.sync();
+    return typeof textRange.text === "string" ? textRange.text : "";
+  } catch {
+    return "";
+  }
+}
+
+function computeOccupiedBounds(shapes: ShapeInfo[]) {
+  const rects = shapes.filter((s) =>
+    typeof s.left === "number" &&
+    typeof s.top === "number" &&
+    typeof s.width === "number" &&
+    typeof s.height === "number"
+  );
+  if (rects.length === 0) return null;
+  const left = Math.min(...rects.map((s) => s.left as number));
+  const top = Math.min(...rects.map((s) => s.top as number));
+  const right = Math.max(...rects.map((s) => (s.left as number) + (s.width as number)));
+  const bottom = Math.max(...rects.map((s) => (s.top as number) + (s.height as number)));
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+    shapeCount: rects.length
+  };
 }
 
 export const listSlides: ToolHandler = async () => {

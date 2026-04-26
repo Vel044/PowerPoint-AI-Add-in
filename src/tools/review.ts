@@ -2,7 +2,7 @@ import { ToolHandler } from "../types";
 import { resolveSlide } from "./shapes";
 import { getActiveProvider, loadConfig, resolveModel } from "../config";
 
-export const reviewSlide: ToolHandler = async (input) => {
+export const reviewSlide: ToolHandler = async (input, toolCtx) => {
   const slideIndex = input.slideIndex as number | undefined;
   const slideId = input.slideId as string | undefined;
   const question =
@@ -13,12 +13,31 @@ export const reviewSlide: ToolHandler = async (input) => {
     const slide = await resolveSlide(ctx, slideId, slideIndex);
 
     let base64Png: string;
+    let actualSlideIndex: number | null = null;
     try {
       const imgResult = (slide as any).getImageAsBase64({ width: 1280 });
       await ctx.sync();
       base64Png = imgResult.value;
+      const slides = ctx.presentation.slides;
+      slides.load("items/id");
+      await ctx.sync();
+      actualSlideIndex = slides.items.findIndex((s) => s.id === slide.id);
     } catch {
       return "截图功能不可用（当前 PowerPoint 版本不支持 getImageAsBase64）。请用 get_current_context 检查形状位置来自查。";
+    }
+
+    const artifact = await saveReviewScreenshot(base64Png, {
+      tool: "review_slide",
+      slideId: slide.id,
+      slideIndex: actualSlideIndex,
+      requestedSlideId: slideId ?? null,
+      requestedSlideIndex: slideIndex ?? null,
+      question,
+      timestamp: new Date().toISOString()
+    });
+    const artifactPrefix = artifact?.path ? `截图已保存: ${artifact.path}\n` : "";
+    if (artifact?.path) {
+      toolCtx.log(`[review_slide] 截图已保存: ${artifact.path}`);
     }
 
     const config = await loadConfig();
@@ -64,16 +83,49 @@ export const reviewSlide: ToolHandler = async (input) => {
 
     if (!res.ok) {
       const text = await res.text();
-      return `视觉审查 API 调用失败 (${res.status}): ${text.slice(0, 300)}`;
+      return `${artifactPrefix}视觉审查 API 调用失败 (${res.status}): ${text.slice(0, 300)}`;
     }
 
     const json = await res.json();
     const textBlocks = (json.content ?? []).filter(
       (b: Record<string, unknown>) => b.type === "text"
     );
-    if (textBlocks.length === 0) return "视觉审查未返回文本结果。";
-    return textBlocks
+    if (textBlocks.length === 0) return `${artifactPrefix}视觉审查未返回文本结果。`;
+    return artifactPrefix + textBlocks
       .map((b: Record<string, unknown>) => (b as any).text ?? "")
       .join("\n");
   });
 };
+
+interface ArtifactResult {
+  ok: boolean;
+  path?: string;
+  metadataPath?: string;
+}
+
+async function saveReviewScreenshot(base64Png: string, metadata: Record<string, unknown>): Promise<ArtifactResult | null> {
+  try {
+    const slidePart = safeFilePart(`${metadata.slideIndex ?? "unknown"}-${metadata.slideId ?? "slide"}`);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const res = await fetch("https://localhost:3001/__debug-artifact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "review-slide",
+        filename: `review-slide-${stamp}-${slidePart}-${suffix}.png`,
+        mime: "image/png",
+        base64: base64Png,
+        metadata
+      })
+    });
+    if (!res.ok) return null;
+    return await res.json() as ArtifactResult;
+  } catch {
+    return null;
+  }
+}
+
+function safeFilePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "slide";
+}

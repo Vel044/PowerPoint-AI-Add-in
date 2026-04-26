@@ -28,6 +28,18 @@ let config: ProvidersConfig;
 let modelOverride = "";
 let officeReady = false;
 
+function hasPowerPointApi(): boolean {
+  return typeof (window as unknown as { PowerPoint?: unknown }).PowerPoint !== "undefined";
+}
+
+function requirePowerPointApi(): boolean {
+  if (officeReady && hasPowerPointApi()) return true;
+  const message = "当前没有检测到 PowerPoint API。请在 PowerPoint 桌面端通过功能区按钮打开此任务窗格；如果是在普通浏览器/localhost 页面里调试，绘图工具无法执行。";
+  setContextBar("未连接 PowerPoint");
+  addBubble("error", message);
+  return false;
+}
+
 async function init() {
   try {
     config = await loadConfig();
@@ -165,6 +177,7 @@ function bindUI() {
     }
   });
   document.getElementById("btn-refresh-ctx")!.addEventListener("click", async () => {
+    if (!requirePowerPointApi()) return;
     try {
       const out = await TOOL_HANDLERS.get_current_context({}, { log: () => {} });
       addBubble("tool", out, "当前上下文");
@@ -246,6 +259,7 @@ async function onSend() {
   const ta = document.getElementById("input") as HTMLTextAreaElement;
   const text = ta.value.trim();
   if (!text) return;
+  if (!requirePowerPointApi()) return;
   ta.value = "";
 
   let contextInfo = "";

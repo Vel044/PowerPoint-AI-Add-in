@@ -1,8 +1,26 @@
 const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyPlugin = require("copy-webpack-plugin");
 const devCerts = require("office-addin-dev-certs");
 const http = require("http");
+
+const ARTIFACT_ROOT = path.resolve(__dirname, "debug-artifacts");
+
+function safePathPart(value) {
+  return String(value ?? "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 120) || "artifact";
+}
+
+function uniqueArtifactName(name) {
+  const parsed = path.parse(safePathPart(name));
+  const ext = parsed.ext || ".bin";
+  const base = parsed.name || "artifact";
+  return `${base}-${crypto.randomBytes(3).toString("hex")}${ext}`;
+}
 
 module.exports = async (env, argv) => {
   const isDev = argv.mode !== "production";
@@ -30,6 +48,31 @@ module.exports = async (env, argv) => {
           console.log(`📋 [Browser] ${body}`);
         }
         res.end("ok");
+      });
+    } else if (req.url === "/__debug-artifact" && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        try {
+          const payload = JSON.parse(body);
+          const kind = safePathPart(payload.kind ?? "misc");
+          const dir = path.join(ARTIFACT_ROOT, kind);
+          fs.mkdirSync(dir, { recursive: true });
+
+          const filename = uniqueArtifactName(payload.filename ?? "artifact.bin");
+          const filePath = path.join(dir, filename);
+          const metaPath = filePath.replace(/\.[^.]+$/, ".json");
+          fs.writeFileSync(filePath, Buffer.from(String(payload.base64 ?? ""), "base64"));
+          fs.writeFileSync(metaPath, JSON.stringify(payload.metadata ?? {}, null, 2));
+          console.log(`📸 [Browser] saved artifact ${filePath}`);
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true, path: filePath, metadataPath: metaPath }));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.log(`❌ [Browser] save artifact failed: ${message}`);
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: message }));
+        }
       });
     } else {
       res.writeHead(404).end();

@@ -38,26 +38,23 @@ export const modifyShape: ToolHandler = async (input) => {
   const shapeId = String(input.shapeId ?? "");
   if (!shapeId) throw new Error("缺少 shapeId");
   return await PowerPoint.run(async (ctx) => {
-    const slides = ctx.presentation.slides;
-    slides.load("items/id");
+    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const shapes = slide.shapes;
+    shapes.load("items/id");
     await ctx.sync();
-    for (const s of slides.items) {
-      const shapes = s.shapes;
-      shapes.load("items/id");
-      await ctx.sync();
-      const target = shapes.items.find((sh) => sh.id === shapeId);
-      if (!target) continue;
-      if (typeof input.text === "string") {
-        target.textFrame.textRange.text = input.text as string;
-      }
-      if (typeof input.left === "number") target.left = input.left as number;
-      if (typeof input.top === "number") target.top = input.top as number;
-      if (typeof input.width === "number") target.width = input.width as number;
-      if (typeof input.height === "number") target.height = input.height as number;
-      await ctx.sync();
-      return `已更新形状 ${shapeId}`;
+    const target = shapes.items.find((sh) => sh.id === shapeId);
+    if (!target) {
+      throw new Error(`当前目标幻灯片（id=${slide.id}）上未找到形状 ${shapeId}。请先调用 get_current_context，用当前页 allShapes 中的 slideId + shapeId 操作。`);
     }
-    throw new Error(`未找到形状 ${shapeId}`);
+    if (typeof input.text === "string") {
+      target.textFrame.textRange.text = input.text as string;
+    }
+    if (typeof input.left === "number") target.left = input.left as number;
+    if (typeof input.top === "number") target.top = input.top as number;
+    if (typeof input.width === "number") target.width = input.width as number;
+    if (typeof input.height === "number") target.height = input.height as number;
+    await ctx.sync();
+    return `已更新幻灯片 ${slide.id} 上的形状 ${shapeId}`;
   });
 };
 
@@ -108,6 +105,13 @@ interface ShapeRect {
   height: number;
 }
 
+interface ShapeBounds {
+  left: number | null;
+  top: number | null;
+  width: number | null;
+  height: number | null;
+}
+
 export const connectShapes: ToolHandler = async (input) => {
   const fromShapeId = String(input.fromShapeId ?? "");
   const toShapeId = String(input.toShapeId ?? "");
@@ -145,14 +149,14 @@ export const connectShapes: ToolHandler = async (input) => {
     const p1 = sidePoint(shapes[fromShapeId], fromSide);
     const p2 = sidePoint(shapes[toShapeId], toSide);
 
-    let connectorShapes = 0;
-    if (mode === "direct") {
-      connectorShapes = drawDirectLine(slide, p1.x, p1.y, p2.x, p2.y, { arrow });
-    } else {
-      connectorShapes = drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, fromSide, toSide, { arrow });
-    }
+    const connector = mode === "direct"
+      ? drawDirectLine(slide, p1.x, p1.y, p2.x, p2.y, { arrow })
+      : drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, fromSide, toSide, { arrow });
     await ctx.sync();
-    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "横平竖直"}，${arrow === "end" ? "带末端箭头" : "无箭头"}，${connectorShapes} 个几何形状，不跟随形状移动）`;
+    const arrowText = connector.arrowHeadsEnabled
+      ? `箭头头=${connector.arrows}`
+      : "箭头头源码开关当前关闭";
+    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "自动横平竖直"}，原生 Straight 线段=${connector.lineSegments}，${arrowText}，主体不跟随形状移动自动重连）`;
   });
 };
 
@@ -160,19 +164,52 @@ export const deleteShape: ToolHandler = async (input) => {
   const shapeId = String(input.shapeId ?? "");
   if (!shapeId) throw new Error("缺少 shapeId");
   return await PowerPoint.run(async (ctx) => {
-    const slides = ctx.presentation.slides;
-    slides.load("items/id");
+    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const shapes = slide.shapes;
+    shapes.load("items/id,name");
     await ctx.sync();
-    for (const s of slides.items) {
-      const shapes = s.shapes;
-      shapes.load("items/id");
-      await ctx.sync();
-      const target = shapes.items.find((sh) => sh.id === shapeId);
-      if (!target) continue;
-      target.delete();
-      await ctx.sync();
-      return `已删除形状 ${shapeId}`;
+    const target = shapes.items.find((sh) => sh.id === shapeId);
+    if (!target) {
+      throw new Error(`当前目标幻灯片（id=${slide.id}）上未找到形状 ${shapeId}。不会跨页搜索删除；请先调用 get_current_context 确认当前页 allShapes。`);
     }
-    throw new Error(`未找到形状 ${shapeId}`);
+
+    const name = safeString(() => target.name);
+    const bounds = await readShapeBounds(ctx, target);
+    target.delete();
+    await ctx.sync();
+    return `已删除幻灯片 ${slide.id} 上的形状 ${shapeId}（name=${name || "未知"}，bounds=${JSON.stringify(bounds)}）。如需替换该图形，可把这个 bounds 用作 create_diagram.canvas。`;
   });
 };
+
+async function readShapeBounds(ctx: PowerPoint.RequestContext, shape: PowerPoint.Shape): Promise<ShapeBounds> {
+  try {
+    shape.load("left,top,width,height");
+    await ctx.sync();
+  } catch {
+    // Some shape-like objects may not expose geometry. Leave fields null below.
+  }
+  return {
+    left: safeNumber(() => shape.left),
+    top: safeNumber(() => shape.top),
+    width: safeNumber(() => shape.width),
+    height: safeNumber(() => shape.height)
+  };
+}
+
+function safeString(read: () => unknown): string {
+  try {
+    const value = read();
+    return typeof value === "string" ? value : "";
+  } catch {
+    return "";
+  }
+}
+
+function safeNumber(read: () => unknown): number | null {
+  try {
+    const value = read();
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
