@@ -23,6 +23,7 @@ pnpm-debug.log*
 # Office Add-in 证书（本地开发）
 .office-addin-dev-certs/
 *.pfx
+debug-artifacts/
 
 # ===== 编辑器 / 系统 =====
 .vscode/settings.json

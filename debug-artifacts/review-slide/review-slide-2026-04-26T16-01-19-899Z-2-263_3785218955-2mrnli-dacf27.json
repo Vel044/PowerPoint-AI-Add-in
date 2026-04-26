@@ -1,9 +1,0 @@
-{
-  "tool": "review_slide",
-  "slideId": "263#3785218955",
-  "slideIndex": 2,
-  "requestedSlideId": "263#3785218955",
-  "requestedSlideIndex": null,
-  "question": "请只关注最近添加的 A、B 矩形及其连接线，检查：1) 连接线是否贴边中点 2) 线条是否水平直连 3) 箭头是否正确指向 B 4) 两个矩形是否无重叠",
-  "timestamp": "2026-04-26T16:01:19.899Z"
-}

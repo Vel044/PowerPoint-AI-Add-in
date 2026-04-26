@@ -1,9 +1,16 @@
 import { ContentBlock, Message, ToolContext, ToolDefinition, ToolHandler } from "../types";
-import { callMessages, callMessagesStream, MessagesResponse, StreamEvent } from "./client";
+import {
+  callMessages,
+  callMessagesStream,
+  isRequestCancelled,
+  MessagesResponse,
+  RequestCancelledError,
+  StreamEvent
+} from "./client";
 import { ModelTier } from "../config";
 
 export interface AgentEvent {
-  type: "text" | "tool_call" | "tool_result" | "error" | "done";
+  type: "text" | "tool_call" | "tool_result" | "error" | "done" | "cancelled";
   text?: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
@@ -18,6 +25,7 @@ export interface AgentOptions {
   maxIterations?: number;
   tier?: ModelTier;
   modelOverride?: string;
+  signal?: AbortSignal;
   onEvent?: (ev: AgentEvent) => void;
 }
 
@@ -61,6 +69,14 @@ create_diagram({
 
 分层架构图/调用链用 layout:"layered" 并给每个节点指定 level（0 为最顶层）。树状展开用 layout:"tree"，工具会按 edges 自动推断父子层级。`;
 
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new RequestCancelledError();
+}
+
+function emitCancelled(emit: (ev: AgentEvent) => void): void {
+  emit({ type: "cancelled", text: "已暂停" });
+}
+
 export async function runAgent(
   userMessage: string,
   history: Message[],
@@ -81,14 +97,21 @@ export async function runAgent(
   for (let i = 0; i < max; i++) {
     let res: MessagesResponse;
     try {
+      throwIfCancelled(options.signal);
       res = await callMessages({
         system: options.system ?? DEFAULT_SYSTEM,
         messages,
         tools: options.tools,
         tier: options.tier,
-        modelOverride: options.modelOverride
+        modelOverride: options.modelOverride,
+        signal: options.signal
       });
+      throwIfCancelled(options.signal);
     } catch (e) {
+      if (isRequestCancelled(e)) {
+        emitCancelled(emit);
+        throw e;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       emit({ type: "error", text: msg });
       throw e;
@@ -128,6 +151,12 @@ export async function runAgent(
     const toolUses = assistantBlocks.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
     const results: ContentBlock[] = [];
     for (const call of toolUses) {
+      try {
+        throwIfCancelled(options.signal);
+      } catch (e) {
+        emitCancelled(emit);
+        throw e;
+      }
       const handler = options.handlers[call.name];
       if (!handler) {
         logToTerminal("warn", `[Agent] ← tool_result: ${call.name} (未知工具)`);
@@ -142,17 +171,28 @@ export async function runAgent(
       }
       try {
         const out = await handler(call.input, toolCtx);
+        throwIfCancelled(options.signal);
         const outStr = out ?? "";
         const outPreview = outStr.slice(0, 300);
         logToTerminal("info", `[Agent] ← tool_result: ${call.name} ok len=${outStr.length} preview=${outPreview}`);
         results.push({ type: "tool_result", tool_use_id: call.id, content: out });
         emit({ type: "tool_result", toolName: call.name, toolResult: out });
       } catch (e) {
+        if (isRequestCancelled(e)) {
+          emitCancelled(emit);
+          throw e;
+        }
         const msg = e instanceof Error ? e.message : String(e);
         logToTerminal("error", `[Agent] ← tool_result: ${call.name} FAILED: ${msg}`);
         results.push({ type: "tool_result", tool_use_id: call.id, content: msg, is_error: true });
         emit({ type: "tool_result", toolName: call.name, toolResult: msg, isError: true });
       }
+    }
+    try {
+      throwIfCancelled(options.signal);
+    } catch (e) {
+      emitCancelled(emit);
+      throw e;
     }
     messages.push({ role: "user", content: results });
   }
@@ -183,13 +223,20 @@ export async function runAgentStream(
     let pendingToolUse: { id: string; name: string; input: Record<string, unknown> } | null = null;
 
     const streamPromise = new Promise<void>((resolve, reject) => {
+      try {
+        throwIfCancelled(options.signal);
+      } catch (e) {
+        reject(e);
+        return;
+      }
       callMessagesStream(
         {
           system: options.system ?? DEFAULT_SYSTEM,
           messages,
           tools: options.tools,
           tier: options.tier,
-          modelOverride: options.modelOverride
+          modelOverride: options.modelOverride,
+          signal: options.signal
         },
         (ev: StreamEvent) => {
           if (ev.type === "text" && ev.text) {
@@ -216,7 +263,16 @@ export async function runAgentStream(
       });
     });
 
-    await streamPromise;
+    try {
+      await streamPromise;
+      throwIfCancelled(options.signal);
+    } catch (e) {
+      if (isRequestCancelled(e)) {
+        emitCancelled(emit);
+        throw e;
+      }
+      throw e;
+    }
 
     const assistantBlocks: ContentBlock[] = [];
     if (textBuffer) {
@@ -245,6 +301,12 @@ export async function runAgentStream(
     const toolUses = assistantBlocks.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
     const results: ContentBlock[] = [];
     for (const call of toolUses) {
+      try {
+        throwIfCancelled(options.signal);
+      } catch (e) {
+        emitCancelled(emit);
+        throw e;
+      }
       const handler = options.handlers[call.name];
       if (!handler) {
         results.push({
@@ -258,9 +320,14 @@ export async function runAgentStream(
       }
       try {
         const out = await handler(call.input, toolCtx);
+        throwIfCancelled(options.signal);
         results.push({ type: "tool_result", tool_use_id: call.id, content: out });
         emit({ type: "tool_result", toolName: call.name, toolResult: out });
       } catch (e) {
+        if (isRequestCancelled(e)) {
+          emitCancelled(emit);
+          throw e;
+        }
         const msg = e instanceof Error ? e.message : String(e);
         results.push({ type: "tool_result", tool_use_id: call.id, content: msg, is_error: true });
         emit({ type: "tool_result", toolName: call.name, toolResult: msg, isError: true });

@@ -1,9 +1,0 @@
-{
-  "tool": "review_slide",
-  "slideId": "257#248512414",
-  "slideIndex": 1,
-  "requestedSlideId": "257#248512414",
-  "requestedSlideIndex": null,
-  "question": "请只关注最近添加的形状（函数调用链图），检查：1）节点之间是否有重叠；2）连线是否歪斜或断裂；3）文字是否溢出。忽略幻灯片上其他旧内容。",
-  "timestamp": "2026-04-26T11:44:15.553Z"
-}

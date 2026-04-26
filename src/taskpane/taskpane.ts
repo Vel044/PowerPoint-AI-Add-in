@@ -1,5 +1,6 @@
 import "./styles.css";
 import { runAgent, AgentEvent } from "../anthropic/agentLoop";
+import { isRequestCancelled, RequestCancelledError } from "../anthropic/client";
 import {
   getActiveProvider,
   loadConfig,
@@ -29,6 +30,8 @@ let currentSession: ChatSession = createSession();
 let config: ProvidersConfig;
 let modelOverride = "";
 let officeReady = false;
+let isAgentRunning = false;
+let activeRunController: AbortController | null = null;
 const MODEL_TIERS = new Set<ModelTier>(["opus", "sonnet", "haiku"]);
 
 function hasPowerPointApi(): boolean {
@@ -136,7 +139,7 @@ function updateSelectionStatus(slideIndexes: number[], shapeCount: number) {
 function bindUI() {
   document.getElementById("btn-config")!.addEventListener("click", showSettings);
   document.getElementById("btn-back")!.addEventListener("click", showMain);
-  document.getElementById("btn-send")!.addEventListener("click", onSend);
+  document.getElementById("btn-send")!.addEventListener("click", onSendButtonClick);
   document.getElementById("btn-new-chat")!.addEventListener("click", onNewChat);
   document.getElementById("btn-history")!.addEventListener("click", toggleHistoryPopup);
   document.getElementById("btn-close-history")!.addEventListener("click", () => {
@@ -155,7 +158,7 @@ function bindUI() {
     const ke = e as KeyboardEvent;
     if (ke.key === "Enter" && !ke.shiftKey) {
       e.preventDefault();
-      onSend();
+      if (!isAgentRunning) onSend();
     }
   });
   document.getElementById("btn-save-config")!.addEventListener("click", onSaveConfig);
@@ -188,6 +191,30 @@ function bindUI() {
       addBubble("error", e instanceof Error ? e.message : String(e));
     }
   });
+}
+
+function onSendButtonClick() {
+  if (isAgentRunning) {
+    pauseAgent();
+    return;
+  }
+  onSend();
+}
+
+function pauseAgent() {
+  if (!activeRunController || activeRunController.signal.aborted) return;
+  activeRunController.abort();
+  const sendBtn = document.getElementById("btn-send") as HTMLButtonElement;
+  sendBtn.textContent = "暂停中...";
+  sendBtn.disabled = true;
+}
+
+function setAgentRunning(running: boolean) {
+  isAgentRunning = running;
+  const sendBtn = document.getElementById("btn-send") as HTMLButtonElement | null;
+  if (!sendBtn) return;
+  sendBtn.disabled = false;
+  sendBtn.textContent = running ? "暂停" : "发送";
 }
 
 function showSettings() {
@@ -259,26 +286,33 @@ function onSaveConfig() {
 }
 
 async function onSend() {
+  if (isAgentRunning) return;
   const ta = document.getElementById("input") as HTMLTextAreaElement;
   const text = ta.value.trim();
   if (!text) return;
   if (!requirePowerPointApi()) return;
   ta.value = "";
+  const runController = new AbortController();
+  activeRunController = runController;
+  setAgentRunning(true);
+  addBubble("user", text);
 
   let contextInfo = "";
   try {
     contextInfo = await TOOL_HANDLERS.get_current_context({}, { log: () => {} });
+    if (runController.signal.aborted) throw new RequestCancelledError();
   } catch {
+    if (runController.signal.aborted) {
+      addBubble("assistant", "已暂停。");
+      cleanupAgentRun(runController);
+      return;
+    }
     // ignore context fetch errors
   }
 
   const fullMessage = contextInfo
     ? `[当前上下文]\n${contextInfo}\n\n[用户消息]\n${text}`
     : text;
-
-  addBubble("user", text);
-  const sendBtn = document.getElementById("btn-send") as HTMLButtonElement;
-  sendBtn.disabled = true;
 
   let assistantBubble: HTMLElement | null = null;
   let assistantText = "";
@@ -290,6 +324,7 @@ async function onSend() {
       handlers: TOOL_HANDLERS,
       tier: modelRequest.tier,
       modelOverride: modelRequest.modelOverride,
+      signal: runController.signal,
       onEvent: (ev: AgentEvent) => {
         if (ev.type === "text" && ev.text) {
           assistantText += ev.text;
@@ -307,15 +342,26 @@ async function onSend() {
           addBubble(ev.isError ? "error" : "tool", ev.toolResult ?? "", `← ${ev.toolName}`);
         } else if (ev.type === "error" && ev.text) {
           addBubble("error", ev.text);
+        } else if (ev.type === "cancelled") {
+          addBubble("assistant", ev.text ?? "已暂停。");
         }
       }
     });
     history = updated;
     persistCurrentSession();
   } catch (e) {
-    addBubble("error", e instanceof Error ? e.message : String(e));
+    if (!isRequestCancelled(e)) {
+      addBubble("error", e instanceof Error ? e.message : String(e));
+    }
   } finally {
-    sendBtn.disabled = false;
+    cleanupAgentRun(runController);
+  }
+}
+
+function cleanupAgentRun(controller: AbortController) {
+  if (activeRunController === controller) {
+    activeRunController = null;
+    setAgentRunning(false);
   }
 }
 

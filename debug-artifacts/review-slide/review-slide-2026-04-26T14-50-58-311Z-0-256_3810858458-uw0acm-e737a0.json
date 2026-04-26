@@ -1,9 +1,0 @@
-{
-  "tool": "review_slide",
-  "slideId": "256#3810858458",
-  "slideIndex": 0,
-  "requestedSlideId": "256#3810858458",
-  "requestedSlideIndex": null,
-  "question": "请只关注最近添加的形状（登录流程图），检查：1. 节点是否有重叠；2. 连线是否歪斜或断裂；3. 文字是否溢出；4. 整体布局是否合理。忽略其他旧内容。",
-  "timestamp": "2026-04-26T14:50:58.311Z"
-}

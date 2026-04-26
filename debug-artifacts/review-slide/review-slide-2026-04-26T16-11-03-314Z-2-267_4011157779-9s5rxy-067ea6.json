@@ -1,9 +1,0 @@
-{
-  "tool": "review_slide",
-  "slideId": "267#4011157779",
-  "slideIndex": 2,
-  "requestedSlideId": "267#4011157779",
-  "requestedSlideIndex": null,
-  "question": "请只关注最近添加的架构图形状和连线，检查：1. 节点是否有重叠；2. 连线是否正确连接到对应节点边中点；3. 树状布局是否整齐对称；4. 文字是否溢出。",
-  "timestamp": "2026-04-26T16:11:03.314Z"
-}

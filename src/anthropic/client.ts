@@ -15,6 +15,7 @@ export interface MessagesRequest {
   max_tokens?: number;
   tier?: ModelTier;
   modelOverride?: string;
+  signal?: AbortSignal;
 }
 
 export interface MessagesResponse {
@@ -28,6 +29,55 @@ export interface MessagesResponse {
     | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   >;
   usage?: { input_tokens: number; output_tokens: number };
+}
+
+export class RequestCancelledError extends Error {
+  constructor(message = "请求已暂停") {
+    super(message);
+    this.name = "RequestCancelledError";
+  }
+}
+
+export function isRequestCancelled(error: unknown): boolean {
+  return error instanceof RequestCancelledError
+    || (error instanceof Error && error.name === "RequestCancelledError");
+}
+
+type AbortReason = "external" | "timeout" | null;
+
+function createLinkedAbortSignal(externalSignal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  let reason: AbortReason = null;
+  const abortFromExternal = () => {
+    if (controller.signal.aborted) return;
+    reason = "external";
+    controller.abort();
+  };
+  const timeout = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    reason = "timeout";
+    controller.abort();
+  }, timeoutMs);
+
+  if (externalSignal?.aborted) {
+    abortFromExternal();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      externalSignal?.removeEventListener("abort", abortFromExternal);
+    },
+    throwIfAborted: () => {
+      if (!controller.signal.aborted) return;
+      if (reason === "external") throw new RequestCancelledError();
+      if (reason === "timeout") throw new Error(`请求超时（${timeoutMs}ms）`);
+      throw new Error("请求已中断");
+    }
+  };
 }
 
 export async function callMessages(req: MessagesRequest): Promise<MessagesResponse> {
@@ -86,8 +136,7 @@ export async function callMessagesStream(
   if (req.system) body.system = req.system;
   if (req.tools && req.tools.length > 0) body.tools = req.tools;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), getTimeoutMs(provider));
+  const abort = createLinkedAbortSignal(req.signal, getTimeoutMs(provider));
 
   try {
     logToTerminal("info", `[Claude] 开始 fetch: ${url}`);
@@ -97,9 +146,10 @@ export async function callMessagesStream(
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal: abort.signal
       });
     } catch (fetchErr) {
+      abort.throwIfAborted();
       logToTerminal("info", `[Claude] fetch 抛出异常: ${fetchErr}`);
       throw fetchErr;
     }
@@ -118,7 +168,14 @@ export async function callMessagesStream(
     let buffer = "";
 
     while (true) {
-      const { done, value } = await reader.read();
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch (readErr) {
+        abort.throwIfAborted();
+        throw readErr;
+      }
+      const { done, value } = chunk;
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -154,8 +211,11 @@ export async function callMessagesStream(
     }
     logToTerminal("warn", "[Claude] 流结束，未收到 message_delta stop_reason");
     onEvent({ type: "done" });
+  } catch (error) {
+    abort.throwIfAborted();
+    throw error;
   } finally {
-    clearTimeout(timeout);
+    abort.cleanup();
   }
 }
 
@@ -197,8 +257,7 @@ export async function callMessagesWithProvider(
   if (req.system) body.system = req.system;
   if (req.tools && req.tools.length > 0) body.tools = req.tools;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), getTimeoutMs(provider));
+  const abort = createLinkedAbortSignal(req.signal, getTimeoutMs(provider));
 
   try {
     let res: Response;
@@ -207,9 +266,10 @@ export async function callMessagesWithProvider(
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal: abort.signal
       });
     } catch (fetchErr) {
+      abort.throwIfAborted();
       logToTerminal("error", `[API] fetch 失败: ${fetchErr} | URL=${url}`);
       throw new Error(`请求失败: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)} (URL: ${url})`);
     }
@@ -220,7 +280,10 @@ export async function callMessagesWithProvider(
       throw new Error(`API ${res.status}: ${text.slice(0, 500)}`);
     }
     return (await res.json()) as MessagesResponse;
+  } catch (error) {
+    abort.throwIfAborted();
+    throw error;
   } finally {
-    clearTimeout(timeout);
+    abort.cleanup();
   }
 }
