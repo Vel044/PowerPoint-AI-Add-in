@@ -35,12 +35,12 @@ npm run validate                               # 校验 manifest.xml
 - `src/tools/context.ts` — Office.js 读取当前上下文（幻灯片、选中形状）
 - `src/tools/slides.ts` — 增删幻灯片
 - `src/tools/shapes.ts` — 增删改文本框等形状，`resolveSlide()` 定位目标幻灯片
-- `src/tools/ooxml.ts` — 通过 JSZip 直接操作 .pptx 内部 XML（导出查看 / patch 后触发下载）
+- `src/tools/ooxml.ts` — 内部单页 export/import XML 编辑桥接，用于修正真实 PowerPoint 连接器
 - `src/types.ts` — `ContentBlock`、`Message`、`ToolHandler` 等共享类型
 
-**两层操作模型**：
+**操作模型**：
 1. Office.js 层（`context.ts`、`slides.ts`、`shapes.ts`）— 实时编辑当前打开的演示文稿
-2. OOXML 层（`ooxml.ts`）— 读取 .pptx ZIP 内容、patch XML 后生成新文件下载（不改原文件）
+2. 单页 XML 层（`ooxml.ts`）— 通过 PowerPointApi 1.8 `Slide.exportAsBase64()` 导出单页 PPTX，JSZip 修改 `ppt/slides/slide1.xml`，再用 `insertSlidesFromBase64()` 插回并删除原页
 
 **配置系统**：`config/providers.json` 定义多个 provider 及其 env（base URL、API key、模型映射）。运行时通过 `localStorage("claude-for-office.providers")` 缓存，UI 可切换 provider 并覆盖 key。
 
@@ -48,6 +48,6 @@ npm run validate                               # 校验 manifest.xml
 
 - 所有工具处理器签名为 `(input: Record<string, unknown>, ctx: ToolContext) => Promise<string>`，新增工具在 `registry.ts` 同时注册定义和处理器
 - Office.js API 通过 `PowerPoint.run(callback)` 调用，回调内需 `load()` 属性再 `ctx.sync()`
-- OOXML 工具有 30 秒 ZIP 缓存（`cachedZip`），`applyPptxPatch` 执行后会清除缓存
+- 单页 XML 能力只作为内部 helper 使用，不作为 Agent 可见工具注册；执行后 slide id 会变化，工具结果会返回新 slide id
 - `manifest.xml` 中 `SourceLocation` 和图标 URL 指向 `https://localhost:3000`，部署时需替换
 - TypeScript 编译目标 ES2020，模块解析用 Bundler 模式

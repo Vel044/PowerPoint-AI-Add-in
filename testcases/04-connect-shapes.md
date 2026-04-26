@@ -20,10 +20,10 @@
 ## 检查点
 
 - [ ] 线条从 A 右边中点出发，连到 B 左边中点
-- [ ] 线条主体是原生 PowerPoint Straight connector（不是细矩形伪线，也不是 Elbow 自动路由）
+- [ ] 线条主体是真实 PowerPoint Straight connector，并通过 stCxn/endCxn 绑定两端形状
 - [ ] 线条长度正好是两个形状之间的水平距离
 - [ ] 线条不穿入矩形内部
-- [ ] 当前源码箭头开关关闭，不出现三角形箭头头
+- [ ] 箭头为 PowerPoint 原生 tailEnd 箭头，不出现三角形形状模拟箭头
 
 ## 变体
 
@@ -31,4 +31,4 @@
 ```
 再把 B 的下边连到 A 的左边
 ```
-预期：端点不同 X/Y → `connect_shapes` 返回信息里显示多段原生 Straight 线段，并且不出现三角形箭头头。
+预期：端点不同 X/Y → `connect_shapes` 返回信息里显示真实 bentConnector3 肘形连接器，并且用原生 tailEnd 箭头指向终点。

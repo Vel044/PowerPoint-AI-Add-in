@@ -1,0 +1,9 @@
+{
+  "tool": "review_slide",
+  "slideId": "273#4008124047",
+  "slideIndex": 4,
+  "requestedSlideId": "273#4008124047",
+  "requestedSlideIndex": 4,
+  "question": "请检查调用链框图的布局是否正确，节点是否按层次从左到右、时间从上到下排列，连接线是否清晰，文字是否完整显示。",
+  "timestamp": "2026-04-26T16:16:18.167Z"
+}

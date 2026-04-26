@@ -4,7 +4,6 @@ const crypto = require("crypto");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyPlugin = require("copy-webpack-plugin");
 const devCerts = require("office-addin-dev-certs");
-const http = require("http");
 
 const ARTIFACT_ROOT = path.resolve(__dirname, "debug-artifacts");
 
@@ -78,11 +77,11 @@ module.exports = async (env, argv) => {
       res.writeHead(404).end();
     }
   };
-  const logHttpsServer = isDev
-    ? require("https").createServer(httpsOptions, handleLogRequest)
-    : http.createServer(handleLogRequest);
-  await new Promise((resolve) => logHttpsServer.listen(3001, resolve));
-  console.log(`📋 Terminal log server running on ${isDev ? "https" : "http"}://localhost:3001`);
+  if (isDev) {
+    const logHttpsServer = require("https").createServer(httpsOptions, handleLogRequest);
+    await new Promise((resolve) => logHttpsServer.listen(3001, resolve));
+    console.log("📋 Terminal log server running on https://localhost:3001");
+  }
 
   return {
     mode: isDev ? "development" : "production",

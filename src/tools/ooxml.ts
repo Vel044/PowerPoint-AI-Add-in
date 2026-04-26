@@ -1,101 +1,132 @@
 import JSZip from "jszip";
-import { ToolHandler } from "../types";
+import { withOfficeErrorContext } from "./officeErrors";
 
-let cachedZip: { zip: JSZip; loadedAt: number } | null = null;
+type SlideXmlMutator = (doc: Document) => void;
 
-const CACHE_MS = 30000;
+interface SlideXmlTarget {
+  slideId?: string;
+  slideIndex?: number;
+}
 
-async function getDocumentBytes(): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    Office.context.document.getFileAsync(
-      Office.FileType.Compressed,
-      { sliceSize: 65536 },
-      (result) => {
-        if (result.status !== Office.AsyncResultStatus.Succeeded) {
-          reject(new Error(result.error?.message ?? "getFileAsync 失败"));
-          return;
-        }
-        const file = result.value;
-        const sliceCount = file.sliceCount;
-        const chunks: Uint8Array[] = [];
-        let received = 0;
-        const getSlice = (i: number) => {
-          file.getSliceAsync(i, (r) => {
-            if (r.status !== Office.AsyncResultStatus.Succeeded) {
-              file.closeAsync();
-              reject(new Error(r.error?.message ?? "getSliceAsync 失败"));
-              return;
-            }
-            const data = r.value.data as unknown;
-            const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer | number[]);
-            chunks[i] = bytes;
-            received++;
-            if (received === sliceCount) {
-              file.closeAsync();
-              const total = chunks.reduce((n, c) => n + c.length, 0);
-              const out = new Uint8Array(total);
-              let off = 0;
-              for (const c of chunks) { out.set(c, off); off += c.length; }
-              resolve(out);
-            } else {
-              getSlice(i + 1 < sliceCount ? i + 1 : i);
-            }
-          });
-        };
-        for (let i = 0; i < sliceCount; i++) getSlice(i);
-      }
-    );
+export interface SlideXmlEditResult {
+  oldSlideId: string;
+  newSlideId: string;
+  oldSlideIndex: number;
+  newSlideIndex: number;
+}
+
+const SLIDE_XML_PATH = "ppt/slides/slide1.xml";
+
+export async function editCurrentSlideXml(target: SlideXmlTarget, mutator: SlideXmlMutator): Promise<SlideXmlEditResult> {
+  return await PowerPoint.run(async (ctx) => {
+    const presentation = ctx.presentation;
+    const slide = await resolveTargetSlide(ctx, target);
+    const slides = presentation.slides;
+    slides.load("items/id,index");
+    slide.load("id,index");
+    const exported = slide.exportAsBase64();
+    await syncWithContext(ctx, "导出目标幻灯片 exportAsBase64 失败");
+
+    if (typeof exported.value !== "string" || exported.value.length === 0) {
+      throw new Error("导出当前幻灯片失败：exportAsBase64 未返回有效 base64。请确认 Office 支持 PowerPointApi 1.8。");
+    }
+
+    const oldSlideId = slide.id;
+    const oldSlideIndex = slide.index;
+    const existingSlideIds = new Set(slides.items.map((item) => item.id));
+    const patchedBase64 = await patchSlideXml(exported.value, mutator);
+
+    presentation.insertSlidesFromBase64(patchedBase64, {
+      targetSlideId: oldSlideId,
+      formatting: "KeepSourceFormatting",
+    });
+    await syncWithContext(ctx, `插入修正后的单页 PPTX 失败，targetSlideId=${oldSlideId}`);
+
+    slides.load("items/id,index");
+    await syncWithContext(ctx, "读取插入后的幻灯片列表失败");
+    const insertedSlide = findInsertedSlide(slides.items, existingSlideIds, oldSlideIndex);
+    if (!insertedSlide) {
+      throw new Error("已插入修正后的幻灯片，但无法定位新 slide id。");
+    }
+    const newSlideId = insertedSlide.id;
+
+    slide.delete();
+    await syncWithContext(ctx, `删除旧幻灯片失败，oldSlideId=${oldSlideId}`);
+
+    presentation.setSelectedSlides([newSlideId]);
+    slides.load("items/id,index");
+    await syncWithContext(ctx, `选中修正后的幻灯片失败，newSlideId=${newSlideId}`);
+    const selected = slides.items.find((item) => item.id === newSlideId);
+    return {
+      oldSlideId,
+      newSlideId,
+      oldSlideIndex,
+      newSlideIndex: selected?.index ?? oldSlideIndex,
+    };
   });
 }
 
-async function getZip(): Promise<JSZip> {
-  const now = Date.now();
-  if (cachedZip && now - cachedZip.loadedAt < CACHE_MS) return cachedZip.zip;
-  const bytes = await getDocumentBytes();
-  const zip = await JSZip.loadAsync(bytes);
-  cachedZip = { zip, loadedAt: now };
-  return zip;
+async function syncWithContext(ctx: PowerPoint.RequestContext, message: string): Promise<void> {
+  try {
+    await ctx.sync();
+  } catch (error) {
+    throw withOfficeErrorContext(error, message);
+  }
 }
 
-export const exportPptxXml: ToolHandler = async (input) => {
-  const wanted = (input.path as string) || "ppt/slides/slide1.xml";
-  const maxChars = (input.maxChars as number) ?? 4000;
-  const zip = await getZip();
-  if (input.list === true) {
-    const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-    return JSON.stringify({ files: names.slice(0, 200) });
+async function resolveTargetSlide(ctx: PowerPoint.RequestContext, target: SlideXmlTarget): Promise<PowerPoint.Slide> {
+  const slides = ctx.presentation.slides;
+  slides.load("items/id,index");
+  if (target.slideId === undefined && target.slideIndex === undefined) {
+    const selectedSlides = ctx.presentation.getSelectedSlides();
+    selectedSlides.load("items/id,index");
+    await syncWithContext(ctx, "读取当前选中幻灯片失败");
+    if (selectedSlides.items.length > 0) return selectedSlides.items[0];
+  } else {
+    await syncWithContext(ctx, "读取幻灯片列表失败");
   }
-  const entry = zip.file(wanted);
-  if (!entry) {
-    const candidates = Object.keys(zip.files).filter((n) => n.includes(wanted));
-    return `未找到 ${wanted}。候选: ${candidates.slice(0, 20).join(", ")}`;
-  }
-  const xml = await entry.async("string");
-  if (xml.length > maxChars) {
-    return xml.slice(0, maxChars) + `\n...[已截断，原长 ${xml.length}]`;
-  }
-  return xml;
-};
 
-export const applyPptxPatch: ToolHandler = async (input) => {
-  const patches = input.patches as Array<{ path: string; content: string }> | undefined;
-  if (!patches || !Array.isArray(patches) || patches.length === 0) {
-    throw new Error("patches 必须是 {path, content}[] 非空数组");
+  if (target.slideId) {
+    const slide = slides.items.find((item) => item.id === target.slideId);
+    if (slide) return slide;
   }
-  const zip = await getZip();
-  for (const p of patches) {
-    if (!p.path || typeof p.content !== "string") throw new Error("patch 缺少 path 或 content");
-    zip.file(p.path, p.content);
+  if (typeof target.slideIndex === "number") {
+    const slide = slides.items.find((item) => item.index === target.slideIndex) ?? slides.items[target.slideIndex];
+    if (slide) return slide;
   }
-  const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `claude-patched-${Date.now()}.pptx`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-  cachedZip = null;
-  return `已生成修补后的 .pptx，共修改 ${patches.length} 个文件，已触发浏览器下载。请用户打开下载的新文件。`;
-};
+  throw new Error("无法定位要原位修正 XML 的幻灯片。");
+}
+
+async function patchSlideXml(base64: string, mutator: SlideXmlMutator): Promise<string> {
+  const zip = await JSZip.loadAsync(base64, { base64: true });
+  const entry = zip.file(SLIDE_XML_PATH);
+  if (!entry) throw new Error(`导出的单页 PPTX 中未找到 ${SLIDE_XML_PATH}`);
+
+  const xml = await entry.async("string");
+  const doc = parseSlideXml(xml);
+  mutator(doc);
+  zip.file(SLIDE_XML_PATH, new XMLSerializer().serializeToString(doc));
+  return await zip.generateAsync({
+    type: "base64",
+    mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  });
+}
+
+function parseSlideXml(xml: string): Document {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const error = doc.getElementsByTagName("parsererror")[0];
+  if (error) {
+    throw new Error(`解析 slide XML 失败: ${error.textContent?.trim() ?? "unknown parser error"}`);
+  }
+  return doc;
+}
+
+function findInsertedSlide(
+  slides: PowerPoint.Slide[],
+  existingSlideIds: Set<string>,
+  oldSlideIndex: number,
+): PowerPoint.Slide | null {
+  const newSlides = slides.filter((slide) => !existingSlideIds.has(slide.id));
+  if (newSlides.length === 1) return newSlides[0];
+  return slides.find((slide) => slide.index === oldSlideIndex + 1 && !existingSlideIds.has(slide.id)) ?? null;
+}

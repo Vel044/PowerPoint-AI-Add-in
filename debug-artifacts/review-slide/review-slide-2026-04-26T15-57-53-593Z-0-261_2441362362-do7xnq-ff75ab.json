@@ -1,0 +1,9 @@
+{
+  "tool": "review_slide",
+  "slideId": "261#2441362362",
+  "slideIndex": 0,
+  "requestedSlideId": "261#2441362362",
+  "requestedSlideIndex": null,
+  "question": "请只关注最近添加的流程图形状，检查：1) 节点是否有重叠 2) 连接线是否歪斜或未贴边 3) 文字是否溢出 4) 整体布局是否美观对称",
+  "timestamp": "2026-04-26T15:57:53.593Z"
+}

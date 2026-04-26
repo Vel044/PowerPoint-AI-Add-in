@@ -1,5 +1,7 @@
 import { ToolHandler } from "../types";
-import { Side, drawDirectLine, drawOrthogonalLine, sidePoint } from "./layout";
+import { withOfficeErrorContext } from "./officeErrors";
+import { normalizeConnectorType, normalizeGeometricShapeType } from "./shapeTypes";
+import { Side, applyConnectorXmlPatches, drawConnectedLine, resolveConnectorXmlPatches } from "./layout";
 
 export async function resolveSlide(ctx: PowerPoint.RequestContext, slideId?: string, slideIndex?: number) {
   const slides = ctx.presentation.slides;
@@ -59,7 +61,7 @@ export const modifyShape: ToolHandler = async (input) => {
 };
 
 export const addGeometricShape: ToolHandler = async (input) => {
-  const shapeType = String(input.shapeType ?? "rectangle");
+  const shapeType = normalizeGeometricShapeType(input.shapeType ?? "rectangle");
   const text = typeof input.text === "string" ? (input.text as string) : "";
   const left = (input.left as number) ?? 50;
   const top = (input.top as number) ?? 50;
@@ -67,7 +69,7 @@ export const addGeometricShape: ToolHandler = async (input) => {
   const height = (input.height as number) ?? 60;
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
-    const shape = slide.shapes.addGeometricShape(shapeType as PowerPoint.GeometricShapeType, {
+    const shape = slide.shapes.addGeometricShape(shapeType, {
       left,
       top,
       width,
@@ -77,22 +79,30 @@ export const addGeometricShape: ToolHandler = async (input) => {
       shape.textFrame.textRange.text = text;
     }
     shape.load("id");
-    await ctx.sync();
+    try {
+      await ctx.sync();
+    } catch (error) {
+      throw withOfficeErrorContext(error, `添加几何形状失败，shapeType=${input.shapeType ?? "rectangle"}，normalized=${shapeType}`);
+    }
     return `已在幻灯片 ${slide.id} 添加几何形状 ${shapeType} (id=${shape.id})`;
   });
 };
 
 export const addLine: ToolHandler = async (input) => {
-  const lineType = String(input.lineType ?? "straight");
+  const lineType = normalizeConnectorType(input.lineType ?? "straight");
   const left = (input.left as number) ?? 0;
   const top = (input.top as number) ?? 0;
   const width = (input.width as number) ?? 100;
   const height = (input.height as number) ?? 0;
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
-    const shape = slide.shapes.addLine(lineType as PowerPoint.ConnectorType, { left, top, width, height });
+    const shape = slide.shapes.addLine(lineType, { left, top, width, height });
     shape.load("id");
-    await ctx.sync();
+    try {
+      await ctx.sync();
+    } catch (error) {
+      throw withOfficeErrorContext(error, `添加连接线失败，lineType=${input.lineType ?? "straight"}，normalized=${lineType}`);
+    }
     return `已在幻灯片 ${slide.id} 添加连接线 ${lineType} (id=${shape.id})`;
   });
 };
@@ -121,7 +131,7 @@ export const connectShapes: ToolHandler = async (input) => {
   const arrow = ((input.arrow as string) ?? "end") === "none" ? "none" : "end";
   if (!fromShapeId || !toShapeId) throw new Error("缺少 fromShapeId 或 toShapeId");
 
-  return await PowerPoint.run(async (ctx) => {
+  const result = await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
     const shapeColl = slide.shapes;
     shapeColl.load("items/id");
@@ -146,18 +156,30 @@ export const connectShapes: ToolHandler = async (input) => {
         throw new Error(`形状 ${id} 的位置属性读取失败 (left=${r.left}, top=${r.top}, w=${r.width}, h=${r.height})。可能是占位符或母版继承的形状，无法作为连接端点。`);
       }
     }
-    const p1 = sidePoint(shapes[fromShapeId], fromSide);
-    const p2 = sidePoint(shapes[toShapeId], toSide);
-
-    const connector = mode === "direct"
-      ? drawDirectLine(slide, p1.x, p1.y, p2.x, p2.y, { arrow })
-      : drawOrthogonalLine(slide, p1.x, p1.y, p2.x, p2.y, fromSide, toSide, { arrow });
+    const connector = drawConnectedLine(
+      slide,
+      fromShapeId,
+      shapes[fromShapeId],
+      fromSide,
+      toShapeId,
+      shapes[toShapeId],
+      toSide,
+      { arrow, mode: mode === "direct" ? "direct" : "orthogonal" },
+    );
     await ctx.sync();
-    const arrowText = connector.arrowHeadsEnabled
-      ? `箭头头=${connector.arrows}`
-      : "箭头头源码开关当前关闭";
-    return `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "自动横平竖直"}，原生 Straight 线段=${connector.lineSegments}，${arrowText}，主体不跟随形状移动自动重连）`;
+    return {
+      slideId: slide.id,
+      slideIndex: typeof input.slideIndex === "number" ? input.slideIndex as number : undefined,
+      connectorPatches: resolveConnectorXmlPatches([connector]),
+      message: `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "自动横平竖直"}，Straight=${connector.straightConnectors}，Elbow=${connector.elbowConnectors}，总连接器=${connector.lineSegments}，原生箭头=${connector.arrows}）`,
+    };
   });
+  const editResult = await applyConnectorXmlPatches({
+    slideId: result.slideId,
+    slideIndex: result.slideIndex,
+  }, result.connectorPatches);
+  const slideText = editResult ? `；新 slideId=${editResult.newSlideId}` : "";
+  return `${result.message}。已通过单页 export/import 修正真实 PowerPoint 连接器${slideText}。`;
 };
 
 export const deleteShape: ToolHandler = async (input) => {

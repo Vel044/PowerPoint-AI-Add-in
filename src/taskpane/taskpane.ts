@@ -3,7 +3,9 @@ import { runAgent, AgentEvent } from "../anthropic/agentLoop";
 import {
   getActiveProvider,
   loadConfig,
+  ModelTier,
   ProvidersConfig,
+  resolveModel,
   saveConfig,
   clearCache
 } from "../config";
@@ -27,6 +29,7 @@ let currentSession: ChatSession = createSession();
 let config: ProvidersConfig;
 let modelOverride = "";
 let officeReady = false;
+const MODEL_TIERS = new Set<ModelTier>(["opus", "sonnet", "haiku"]);
 
 function hasPowerPointApi(): boolean {
   return typeof (window as unknown as { PowerPoint?: unknown }).PowerPoint !== "undefined";
@@ -252,7 +255,7 @@ function onSaveConfig() {
   saveConfig(config);
   showMain();
   addBubble("assistant", `配置已保存，当前 Provider: ${active.name}`);
-  setContextBar(`Provider: ${active.name}${modelOverride ? ` · 模型: ${modelOverride}` : ""}`);
+  setContextBar(`Provider: ${active.name}${modelOverride ? ` · 模型: ${describeSelectedModel(active)}` : ""}`);
 }
 
 async function onSend() {
@@ -281,10 +284,12 @@ async function onSend() {
   let assistantText = "";
 
   try {
+    const modelRequest = getModelRequest();
     const updated = await runAgent(fullMessage, history, {
       tools: TOOL_DEFINITIONS,
       handlers: TOOL_HANDLERS,
-      modelOverride: modelOverride || undefined,
+      tier: modelRequest.tier,
+      modelOverride: modelRequest.modelOverride,
       onEvent: (ev: AgentEvent) => {
         if (ev.type === "text" && ev.text) {
           assistantText += ev.text;
@@ -312,6 +317,21 @@ async function onSend() {
   } finally {
     sendBtn.disabled = false;
   }
+}
+
+function getModelRequest(): { tier?: ModelTier; modelOverride?: string } {
+  if (MODEL_TIERS.has(modelOverride as ModelTier)) {
+    return { tier: modelOverride as ModelTier };
+  }
+  return { modelOverride: modelOverride || undefined };
+}
+
+function describeSelectedModel(active = getActiveProvider(config)): string {
+  if (MODEL_TIERS.has(modelOverride as ModelTier)) {
+    const tier = modelOverride as ModelTier;
+    return `${tier} / ${resolveModel(active, tier)}`;
+  }
+  return modelOverride;
 }
 
 function persistCurrentSession() {

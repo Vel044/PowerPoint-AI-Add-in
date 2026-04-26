@@ -1,0 +1,9 @@
+{
+  "tool": "review_slide",
+  "slideId": "262#4132297060",
+  "slideIndex": 1,
+  "requestedSlideId": "262#4132297060",
+  "requestedSlideIndex": null,
+  "question": "请只关注最近添加的函数调用链形状，检查：1) 每层节点是否水平对齐 2) 跨层连线是否合理无交叉 3) 文字是否溢出 4) 整体层级是否清晰",
+  "timestamp": "2026-04-26T15:59:23.558Z"
+}
