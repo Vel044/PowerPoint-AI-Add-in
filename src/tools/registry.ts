@@ -229,7 +229,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "edit_slide_xml",
-    description: "Claude 风格原位编辑目标幻灯片 OOXML：传入 async JS 函数体 code，工具导出单页 PPTX 为 JSZip，注入 zip、markDirty 和 pptx helper，执行后重新插回并删除旧页。普通画图优先用 pptx.addShape(...); pptx.addConnector(...); pptx.save(); markDirty();，不要手写大段 createElementNS。pptx.openSlide() 固定使用 ppt/slides/slide1.xml。仍可直接用 zip 做高级 patch。执行前后会保存 debug-artifacts/edit-slide-xml/*.xml，并返回新 slideId。",
+    description: "Claude 风格原位编辑目标幻灯片 OOXML：传入 async JS 函数体 code，工具导出单页 PPTX 为 JSZip，注入 zip、markDirty 和 pptx helper，执行后重新插回并删除旧页。普通画图优先用 pptx.addShape(...); pptx.addConnector(...); pptx.save(); markDirty();，不要手写大段 createElementNS。pptx.slideWidth/slideHeight 提供真实画布尺寸，addShape 会拒绝越界坐标。addShape 支持 style 语义预设：entry/process/decision/success/danger/database/io/external/muted/note/laneHeader/title；应按节点语义选择 2-5 种样式，避免全图同色。pptx.openSlide() 固定使用 ppt/slides/slide1.xml。仍可直接用 zip 做高级 patch。执行前后会保存 debug-artifacts/edit-slide-xml/*.xml，并返回新 slideId。",
     input_schema: {
       type: "object",
       properties: {
@@ -238,7 +238,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         pageNumber: { type: "number" },
         code: {
           type: "string",
-          description: "async 函数体，不要包 async function。优先使用 pptx helper：const a=pptx.addShape({id:'a',shapeType:'roundRect',text:'A',left:40,top:40,width:160,height:60}); const b=pptx.addShape(...); pptx.addConnector({from:a,fromSide:'right',to:b,toSide:'left'}); pptx.save(); markDirty();。也可直接使用 zip、DOMParser、XMLSerializer 做高级 XML patch。"
+          description: "async 函数体，不要包 async function。优先使用 pptx helper：const a=pptx.addShape({id:'a',shapeType:'roundRect',style:'process',text:'A',left:40,top:40,width:160,height:60}); const b=pptx.addShape({... , style:'database'}); pptx.addConnector({from:a,fromSide:'right',to:b,toSide:'left',style:'data'}); pptx.save(); markDirty();。也可直接使用 zip、DOMParser、XMLSerializer 做高级 XML patch。"
         },
         autosize_shape_ids: {
           type: "array",

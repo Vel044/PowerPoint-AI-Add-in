@@ -41,6 +41,7 @@ motors_bus._sync_write(addr=42, length=2, ids_values={1:1891,...,6:34})
 | 节点尺寸   | 不一致         | 同类节点尺寸一致，长文本框可按内容加宽                     |
 | 布局方向   | 混乱           | 左到右是层次，上到下是时间                                  |
 | 箭头头     | 无（全裸线）   | 使用 PowerPoint 原生 tailEnd 箭头，不出现三角形形状模拟箭头 |
+| 画布边界   | 可能越界       | 所有形状在 slideWidth/slideHeight 内，必要时缩放或换行       |
 
 ## 验收
 

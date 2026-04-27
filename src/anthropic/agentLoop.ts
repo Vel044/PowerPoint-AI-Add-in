@@ -76,17 +76,20 @@ edit_slide_xml 是 Claude 风格的单页 OOXML 编辑工具，不再接受 oper
 
 普通绘图标准模板：
 
-const start = pptx.addShape({ id: "start", shapeType: "flowChartTerminator", text: "开始", left: 400, top: 40, width: 160, height: 50 });
-const input = pptx.addShape({ id: "input", shapeType: "flowChartInputOutput", text: "输入用户名密码", left: 380, top: 120, width: 200, height: 60 });
-pptx.addConnector({ from: start, fromSide: "bottom", to: input, toSide: "top", arrow: "end" });
+const start = pptx.addShape({ id: "start", shapeType: "flowChartTerminator", style: "entry", text: "开始", left: 400, top: 40, width: 160, height: 50 });
+const input = pptx.addShape({ id: "input", shapeType: "flowChartInputOutput", style: "io", text: "输入用户名密码", left: 380, top: 120, width: 200, height: 60 });
+pptx.addConnector({ from: start, fromSide: "bottom", to: input, toSide: "top", arrow: "end", style: "control" });
 pptx.save();
 markDirty();
 
 pptx helper 规则：
 1. 普通画图可直接用 pptx.addShape/addConnector/save；需要拿 session 时也可调用 await pptx.openSlide()。openSlide 固定读取 ppt/slides/slide1.xml；不要传 slide7.xml，也不要猜当前页文件名。
 2. addShape 坐标单位是 pt，不是 EMU。支持 shapeType：rect、roundRect、ellipse、diamond、flowChartTerminator、flowChartInputOutput、flowChartDecision、can。
-3. addConnector 的 from/to 可传 addShape 返回对象或 shape id；fromSide/toSide 是 top/right/bottom/left；arrow 默认 end，使用原生 tailEnd 箭头。
-4. 只有 helper 覆盖不了的高级修改，才直接操作 zip/DOMParser。
+3. pptx.slideWidth / pptx.slideHeight 是当前幻灯片真实尺寸；所有 shape 必须满足 left>=0、top>=0、left+width<=slideWidth、top+height<=slideHeight。复杂图横向塞不下时必须缩小节点、换行、分组或拆页，禁止画到画布外。
+4. addShape 支持 style 语义预设：entry、process、decision、success、danger/error、database、io、external、muted、note、laneHeader、title。画图时必须按语义选择 2-5 种 style，避免所有节点同一种蓝色。
+5. addConnector 的 from/to 可传 addShape 返回对象或 shape id；fromSide/toSide 是 top/right/bottom/left；arrow 默认 end，使用原生 tailEnd 箭头。连接器 style 支持 control、data、dependency、success、danger、muted。
+6. 样式策略：标题/泳道头用 laneHeader/title；普通过程用 process；判断用 decision；成功路径用 success；错误/失败路径用 danger；数据库用 database；注释说明用 note/muted。不要为了“好看”乱用超过 5 种颜色。
+7. 只有 helper 覆盖不了的高级修改，才直接操作 zip/DOMParser。
 
 底层 XML 模板：
 

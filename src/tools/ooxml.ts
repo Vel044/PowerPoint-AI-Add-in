@@ -47,6 +47,8 @@ interface PptxShapeInput {
   id?: string | number;
   shapeType?: string;
   type?: string;
+  style?: string;
+  role?: string;
   text?: string;
   left?: number;
   top?: number;
@@ -69,6 +71,7 @@ interface PptxConnectorInput {
   toSide: "top" | "right" | "bottom" | "left";
   type?: "line" | "straight" | "elbow" | "bentConnector3";
   arrow?: "end" | "none";
+  style?: string;
   color?: string;
   width?: number;
   thickness?: number;
@@ -76,6 +79,9 @@ interface PptxConnectorInput {
 }
 
 interface PptxSlideHelper {
+  slideWidth: number;
+  slideHeight: number;
+  bounds: { left: number; top: number; width: number; height: number };
   emu: (pt: number) => number;
   nextShapeId: () => string;
   appendXml: (xml: string) => Element;
@@ -181,7 +187,7 @@ export async function editCurrentSlideZip(
     const existingSlideIds = new Set(slides.items.map((item) => item.id));
     const zip = await JSZip.loadAsync(exported.value, { base64: true });
     const originalXml = await readSlideXmlFromZip(zip);
-    const pptx = createPptxHelper(zip, originalXml);
+    const pptx = await createPptxHelper(zip, originalXml);
     const beforeArtifact = await saveXmlArtifact("before", originalXml, {
       ...options.artifactMetadata,
       phase: "before",
@@ -325,8 +331,9 @@ async function readSlideXmlFromBase64(base64: string): Promise<Document> {
   return parseSlideXml(await readSlideXmlFromZip(zip));
 }
 
-function createPptxHelper(zip: JSZip, originalXml: string): PptxHelper {
-  const slide = createSlideHelper(zip, originalXml);
+async function createPptxHelper(zip: JSZip, originalXml: string): Promise<PptxHelper> {
+  const slideSize = await readSlideSize(zip) ?? { width: 960, height: 540 };
+  const slide = createSlideHelper(zip, originalXml, slideSize);
   const ensureSlide = async (path?: string): Promise<PptxSlideHelper> => {
     if (path && path !== SLIDE_XML_PATH) {
       throw new Error(`edit_slide_xml 单页包内固定使用 ${SLIDE_XML_PATH}，不要猜测 ${path}`);
@@ -335,6 +342,9 @@ function createPptxHelper(zip: JSZip, originalXml: string): PptxHelper {
   };
   return {
     openSlide: ensureSlide,
+    slideWidth: slide.slideWidth,
+    slideHeight: slide.slideHeight,
+    bounds: slide.bounds,
     emu: (pt: number) => pointToEmu(pt),
     nextShapeId: () => slide.nextShapeId(),
     appendXml: (xml: string) => slide.appendXml(xml),
@@ -344,7 +354,22 @@ function createPptxHelper(zip: JSZip, originalXml: string): PptxHelper {
   };
 }
 
-function createSlideHelper(zip: JSZip, xml: string): PptxSlideHelper {
+async function readSlideSize(zip: JSZip): Promise<{ width: number; height: number } | null> {
+  const presentation = zip.file("ppt/presentation.xml");
+  if (!presentation) return null;
+  const xml = await presentation.async("string");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const error = doc.getElementsByTagName("parsererror")[0];
+  if (error) return null;
+  const size = doc.getElementsByTagNameNS(P_NS, "sldSz")[0];
+  if (!size) return null;
+  const cx = Number(size.getAttribute("cx"));
+  const cy = Number(size.getAttribute("cy"));
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || cx <= 0 || cy <= 0) return null;
+  return { width: cx / 12700, height: cy / 12700 };
+}
+
+function createSlideHelper(zip: JSZip, xml: string, slideSize: { width: number; height: number }): PptxSlideHelper {
   const doc = parseSlideXml(xml);
   const spTree = doc.getElementsByTagNameNS(P_NS, "spTree")[0];
   if (!spTree) throw new Error("slide XML 中未找到 p:spTree");
@@ -352,11 +377,15 @@ function createSlideHelper(zip: JSZip, xml: string): PptxSlideHelper {
   const refs = new Map<string, PptxShapeRef>();
 
   const helper: PptxSlideHelper = {
+    slideWidth: slideSize.width,
+    slideHeight: slideSize.height,
+    bounds: { left: 0, top: 0, width: slideSize.width, height: slideSize.height },
     emu: (pt: number) => pointToEmu(pt),
     nextShapeId: () => nextShapeId(doc),
     appendXml: (xml: string) => appendXml(doc, spTree, xml),
     addShape: (input: PptxShapeInput) => {
       const ref = normalizeShapeInput(doc, input, aliases, refs);
+      assertShapeWithinSlide(ref, slideSize);
       appendXml(doc, spTree, shapeXml(ref, input));
       aliases.set(ref.id, ref);
       refs.set(ref.shapeId, ref);
@@ -402,6 +431,18 @@ function normalizeShapeInput(
   return ref;
 }
 
+function assertShapeWithinSlide(ref: PptxShapeRef, slideSize: { width: number; height: number }): void {
+  const right = ref.left + ref.width;
+  const bottom = ref.top + ref.height;
+  const pad = 0.01;
+  if (ref.left < -pad || ref.top < -pad || right > slideSize.width + pad || bottom > slideSize.height + pad) {
+    throw new Error(
+      `形状 ${ref.id} 超出幻灯片边界：left=${ref.left}, top=${ref.top}, width=${ref.width}, height=${ref.height}, ` +
+      `slideWidth=${slideSize.width}, slideHeight=${slideSize.height}。请重新缩放或分栏，所有坐标必须在画布内。`
+    );
+  }
+}
+
 function connectorRef(doc: Document, from: PptxShapeRef, to: PptxShapeRef): PptxShapeRef {
   const id = nextShapeId(doc);
   const left = Math.min(from.left, to.left);
@@ -419,11 +460,12 @@ function resolveShapeRef(value: string | number | PptxShapeRef, aliases: Map<str
 
 function shapeXml(ref: PptxShapeRef, input: PptxShapeInput): string {
   const shapeType = normalizeShapeType(input.shapeType ?? input.type ?? "rect");
-  const fill = fillXml(input.fill ?? input.fillColor ?? "accent1");
-  const line = lineXml(input.line ?? input.lineColor ?? "dk1", input.lineWidth);
-  const textColor = colorFillXml(input.textColor ?? "lt1");
-  const fontSize = Math.max(6, Math.round(input.fontSize ?? 14)) * 100;
-  const bold = input.bold === false ? "0" : "1";
+  const style = shapeStyle(input, shapeType);
+  const fill = fillXml(input.fill ?? input.fillColor ?? style.fill);
+  const line = lineXml(input.line ?? input.lineColor ?? style.line, input.lineWidth ?? style.lineWidth);
+  const textColor = colorFillXml(input.textColor ?? style.text);
+  const fontSize = Math.max(6, Math.round(input.fontSize ?? style.fontSize)) * 100;
+  const bold = input.bold ?? style.bold ? "1" : "0";
   return `<p:sp xmlns:p="${P_NS}" xmlns:a="${A_NS}">
 <p:nvSpPr><p:cNvPr id="${ref.shapeId}" name="${escapeXml(input.text || ref.alias || `Shape ${ref.shapeId}`)}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
 <p:spPr><a:xfrm><a:off x="${pointToEmu(ref.left)}" y="${pointToEmu(ref.top)}"/><a:ext cx="${pointToEmu(ref.width)}" cy="${pointToEmu(ref.height)}"/></a:xfrm><a:prstGeom prst="${shapeType}"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr>
@@ -443,8 +485,9 @@ function connectorXml(ref: PptxShapeRef, from: PptxShapeRef, to: PptxShapeRef, i
   const height = Math.abs(end.y - start.y);
   const flipH = start.x > end.x ? ' flipH="1"' : "";
   const flipV = start.y > end.y ? ' flipV="1"' : "";
-  const color = input.color ?? "dk1";
-  const weight = pointToEmu(input.width ?? input.thickness ?? 2);
+  const style = connectorStyle(input.style);
+  const color = input.color ?? style.color;
+  const weight = pointToEmu(input.width ?? input.thickness ?? style.width);
   const arrow = input.arrow === "none" ? "" : '<a:tailEnd type="arrow" w="med" len="med"/>';
   const dash = dashXml(input.dashStyle);
   return `<p:cxnSp xmlns:p="${P_NS}" xmlns:a="${A_NS}">
@@ -523,6 +566,70 @@ function normalizeShapeType(value: string): string {
   const normalized = map[key];
   if (!normalized) throw new Error(`不支持的 shapeType: ${value}`);
   return normalized;
+}
+
+interface ShapeStyle {
+  fill: string;
+  line: string;
+  text: string;
+  fontSize: number;
+  lineWidth: number;
+  bold: boolean;
+}
+
+function shapeStyle(input: PptxShapeInput, shapeType: string): ShapeStyle {
+  const key = normalizeStyleKey(input.style ?? input.role ?? inferredStyleForShape(shapeType));
+  const styles: Record<string, ShapeStyle> = {
+    primary: { fill: "accent1", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    secondary: { fill: "accent5", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    process: { fill: "accent1", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    entry: { fill: "accent5", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    endpoint: { fill: "accent6", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    decision: { fill: "accent4", line: "dk1", text: "dk1", fontSize: 13, lineWidth: 1.2, bold: true },
+    success: { fill: "accent6", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    danger: { fill: "accent2", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    error: { fill: "accent2", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 1.2, bold: true },
+    warning: { fill: "accent4", line: "dk1", text: "dk1", fontSize: 14, lineWidth: 1.2, bold: true },
+    database: { fill: "accent3", line: "dk1", text: "dk1", fontSize: 13, lineWidth: 1.2, bold: true },
+    io: { fill: "accent5", line: "dk1", text: "lt1", fontSize: 13, lineWidth: 1.2, bold: true },
+    external: { fill: "lt2", line: "accent1", text: "dk1", fontSize: 13, lineWidth: 1, bold: true },
+    muted: { fill: "lt2", line: "accent1", text: "dk1", fontSize: 12, lineWidth: 1, bold: false },
+    note: { fill: "lt2", line: "accent4", text: "dk1", fontSize: 12, lineWidth: 1, bold: false },
+    dark: { fill: "dk2", line: "dk1", text: "lt1", fontSize: 14, lineWidth: 0.8, bold: true },
+    laneheader: { fill: "dk2", line: "dk2", text: "lt1", fontSize: 13, lineWidth: 0.8, bold: true },
+    title: { fill: "dk2", line: "dk2", text: "lt1", fontSize: 16, lineWidth: 0.8, bold: true },
+  };
+  return styles[key] ?? styles.primary;
+}
+
+function inferredStyleForShape(shapeType: string): string {
+  if (shapeType === "flowChartDecision" || shapeType === "diamond") return "decision";
+  if (shapeType === "flowChartTerminator" || shapeType === "ellipse") return "endpoint";
+  if (shapeType === "flowChartInputOutput") return "io";
+  if (shapeType === "can") return "database";
+  return "process";
+}
+
+function connectorStyle(value?: string): { color: string; width: number } {
+  const key = normalizeStyleKey(value ?? "default");
+  const styles: Record<string, { color: string; width: number }> = {
+    default: { color: "dk1", width: 2 },
+    primary: { color: "accent1", width: 2 },
+    secondary: { color: "accent5", width: 2 },
+    success: { color: "accent6", width: 2 },
+    danger: { color: "accent2", width: 2 },
+    error: { color: "accent2", width: 2 },
+    warning: { color: "accent4", width: 2 },
+    muted: { color: "accent1", width: 1.2 },
+    dependency: { color: "accent5", width: 1.5 },
+    data: { color: "accent3", width: 2 },
+    control: { color: "dk1", width: 2 },
+  };
+  return styles[key] ?? styles.default;
+}
+
+function normalizeStyleKey(value: string): string {
+  return value.replace(/[\s_-]/g, "").toLowerCase();
 }
 
 function fillXml(color: string): string {

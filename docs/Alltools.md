@@ -22,7 +22,7 @@ explanation	string	❌	操作说明
 
 参数	类型	必填	说明
 slideId / slideIndex / pageNumber	string / number	❌	目标页；不传默认当前页
-code	string	✅	async 函数体，接收作用域变量 `zip`、`markDirty`、`pptx`。普通绘图优先 `pptx.addShape(...); pptx.addConnector(...); pptx.save(); markDirty();`
+code	string	✅	async 函数体，接收作用域变量 `zip`、`markDirty`、`pptx`。普通绘图优先 `pptx.addShape(...); pptx.addConnector(...); pptx.save(); markDirty();`；`pptx.slideWidth/slideHeight` 是真实画布尺寸，越界 shape 会报错；可用 `style` 语义预设（entry/process/decision/success/danger/database/io/laneHeader/title 等）做合理区分
 autosize_shape_ids	string[]	❌	修改了文本的形状的 cNvPr ID 列表，工具会重新应用 AutoSize 触发重排
 explanation	string	❌	操作说明
 📊 edit_slide_chart
