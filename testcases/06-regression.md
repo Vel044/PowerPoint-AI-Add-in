@@ -32,7 +32,7 @@
 ### C2. 视觉审查截图留档
 
 ```
-检查当前页最近添加的图是否有重叠。
+检查当前页最近添加的图形是否有重叠。有的话移动一下让他们分开
 ```
 
 预期：`review_slide`，tool result 和终端日志都包含 `debug-artifacts/review-slide/*.png` 路径，并生成同名 `.json` 元数据。

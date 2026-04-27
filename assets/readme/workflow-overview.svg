@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">PowerPoint AI Add-in 执行链路图</title>
+  <desc id="desc">展示从发送消息到工具执行再到 PowerPoint 更新的完整流程。</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { font: 700 30px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2a44; }
+      .step { fill: #ffffff; stroke: #cfd8e8; stroke-width: 2; rx: 18; }
+      .num { fill: #5d84ff; }
+      .numText { font: 700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .label { font: 600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #223252; }
+      .text { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #50607d; }
+      .arrow { stroke: #6d83ab; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .note { font: 500 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #6b7891; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6d83ab"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1200" height="640"/>
+  <text x="60" y="72" class="title">一次典型请求是怎样落到 PowerPoint 里的</text>
+
+  <rect class="step" x="60" y="140" width="220" height="150"/>
+  <circle class="num" cx="100" cy="182" r="24"/>
+  <text class="numText" x="92" y="190">1</text>
+  <text x="138" y="186" class="label">用户输入请求</text>
+  <text x="88" y="226" class="text">在任务窗格里描述目标：</text>
+  <text x="88" y="254" class="text">例如画流程图、删形状、</text>
+  <text x="88" y="282" class="text">检查当前页效果。</text>
+
+  <rect class="step" x="340" y="140" width="220" height="150"/>
+  <circle class="num" cx="380" cy="182" r="24"/>
+  <text class="numText" x="372" y="190">2</text>
+  <text x="418" y="186" class="label">模型返回 tool_use</text>
+  <text x="368" y="226" class="text">Agent 请求 Provider，</text>
+  <text x="368" y="254" class="text">模型决定是否调用</text>
+  <text x="368" y="282" class="text">上下文、绘图、审查工具。</text>
+
+  <rect class="step" x="620" y="140" width="220" height="150"/>
+  <circle class="num" cx="660" cy="182" r="24"/>
+  <text class="numText" x="652" y="190">3</text>
+  <text x="698" y="186" class="label">本地工具执行</text>
+  <text x="648" y="226" class="text">工具层读取 slide、</text>
+  <text x="648" y="254" class="text">创建形状、修改文本、</text>
+  <text x="648" y="282" class="text">生成连线与截图。</text>
+
+  <rect class="step" x="900" y="140" width="240" height="150"/>
+  <circle class="num" cx="940" cy="182" r="24"/>
+  <text class="numText" x="932" y="190">4</text>
+  <text x="978" y="186" class="label">PowerPoint 更新</text>
+  <text x="928" y="226" class="text">Office.js 直接落图；</text>
+  <text x="928" y="254" class="text">必要时走单页导出与 XML</text>
+  <text x="928" y="282" class="text">修正，再回到当前文档。</text>
+
+  <rect class="step" x="340" y="380" width="520" height="160"/>
+  <circle class="num" cx="380" cy="422" r="24"/>
+  <text class="numText" x="372" y="430">5</text>
+  <text x="418" y="426" class="label">结果回填与下一轮决策</text>
+  <text x="368" y="466" class="text">工具结果会回给模型；如果任务尚未完成，Agent 会继续下一轮判断。</text>
+  <text x="368" y="496" class="text">如果用户点击“暂停”，当前模型请求会取消，或在当前工具结束后停止后续轮次。</text>
+  <text x="368" y="526" class="note">这也是它和单纯“聊天回答”最大的区别：它真的会把结果写进 PPT。</text>
+
+  <path class="arrow" d="M280 215 H340"/>
+  <path class="arrow" d="M560 215 H620"/>
+  <path class="arrow" d="M840 215 H900"/>
+  <path class="arrow" d="M1020 290 V340 H600 V380"/>
+</svg>
