@@ -1,6 +1,6 @@
 # PowerPoint 工具路线图
 
-这份文档记录 Claude 风格 PowerPoint 工具体系的长期建设方向。实现时优先复用现有 `slideTarget`、`context`、`review_slide`、`ooxml`、`create_diagram/connect_shapes` 和 agent loop，不暴露未完成工具给模型。
+这份文档记录 Claude 风格 PowerPoint 工具体系的长期建设方向。实现时优先复用现有 `slideTarget`、`context`、`review_slide`、`ooxml`、`connect_shapes` 和 agent loop，不暴露未完成工具给模型。
 
 ## 状态说明
 
@@ -31,8 +31,6 @@
 | `modify_shape` | existing | 修改形状文字、位置、尺寸、样式 |
 | `delete_shape` | existing | 删除指定页内指定形状 |
 | `connect_shapes` | existing | 连接两个形状，补线条样式参数 |
-| `create_diagram` | existing | 自动布局图，后续保留为快速入口 |
-| `draw_slide_shapes` | v1 | 批量自由绘制复杂框图 |
 | `edit_slide_text` | v1 | 用 OOXML 替换 shape 富文本段落 |
 
 ## OOXML 与底层能力
@@ -90,3 +88,5 @@
 - `edit_slide_master` 不开放任意 master XML，只做当前页背景和本地默认偏好。
 - 图标库使用内置 SVG，不接微软远端图标服务。
 - 多 Agent/MCP 类工具注册为明确 unsupported，避免模型误以为已经具备跨 Office 协作协议。
+- `draw_slide_shapes` 已移除：它的 schema 反而限制复杂框图发挥；复杂框图改走 `edit_slide_xml` 结构化 OOXML 操作。
+- `create_diagram` 已从模型工具列表移除：简单图和复杂图统一试走 `edit_slide_xml` 或基础形状/连接器组合，避免自动布局抽象限制模型发挥。

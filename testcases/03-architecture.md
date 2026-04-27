@@ -8,7 +8,7 @@
 
 ## 预期行为
 
-- `create_diagram({ layout: "tree", ... })`
+- 优先 `edit_slide_xml`，由模型自己规划树状坐标并批量插入节点和连接器
 - 节点 shape 混用：前端/网关用 `roundRectangle`，服务用 `rectangle`，数据库用 `can` 或 `flowChartInputOutput`
 - edges 构成 3 层树
 

@@ -9,10 +9,10 @@
 ## 预期行为
 
 - AI 调用 `get_current_context`
-- 调用一次 `create_diagram`，参数大致为：
-  - `layout: "vertical"` 或 `"tree"`
-  - 6 个节点，起止用 `flowChartTerminator`、判断用 `diamond`、过程用 `rectangle`
-  - 6 条 edges（包括判断节点到两条分支再汇合到结束）
+- 调用结构化 `edit_slide_xml`，批量插入 6 个节点和 6 条真实连接器：
+  - 起止用 terminator 或圆角矩形风格、判断用 diamond、过程用 rectangle
+  - 连接器包含开始到输入、输入到判断、判断到两条分支、两条分支汇合到结束
+- 画完后调用 `verify_slides` 和截图检查
 
 ## 检查点
 

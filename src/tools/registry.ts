@@ -2,8 +2,6 @@ import { ToolDefinition, ToolHandler } from "../types";
 import { exportDeckOutline, getCurrentContext, listSlideShapes, listSlides } from "./context";
 import { addSlide, deleteSlide, duplicateSlide } from "./slides";
 import { addGeometricShape, addLine, addTextBox, connectShapes, deleteShape, modifyShape } from "./shapes";
-import { createDiagram } from "./layout";
-import { drawSlideShapes } from "./freeDraw";
 import { editSlideText, editSlideXml, readSlideText } from "./richText";
 import { reviewSlide } from "./review";
 import { todoWrite } from "./todo";
@@ -156,7 +154,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "add_line",
-    description: "在指定幻灯片上添加一条原生线条。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。连接两个形状表达调用/数据流向时优先用 connect_shapes 或 create_diagram。lineType 支持：straight、elbow、curve（curved 会自动映射到 curve）。坐标以 (left, top) 为起点，(left+width, top+height) 为终点。",
+    description: "在指定幻灯片上添加一条原生线条。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。连接两个形状表达调用/数据流向时优先用 connect_shapes。lineType 支持：straight、elbow、curve（curved 会自动映射到 curve）。坐标以 (left, top) 为起点，(left+width, top+height) 为终点。",
     input_schema: {
       type: "object",
       properties: {
@@ -199,122 +197,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "create_diagram",
-    description: "一次性在指定幻灯片生成一张完整的图（流程图/调用链/架构图等）。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。传入节点和连线的抽象描述，内部自动布局、创建节点，并用贴边中点的真实 PowerPoint connector 连接；端点同 X/Y 时使用 Straight，否则使用 bentConnector3 肘形连接器。连接器通过原生 tailEnd 生成箭头。工具会通过单页 export/import 修正 XML，返回的新 slideId 应用于后续操作。layout: vertical(竖排)/horizontal(横排)/layered(按 level 分层)/tree(按 edges 从根向下)。节点统一尺寸 160x60。",
-    input_schema: {
-      type: "object",
-      properties: {
-        layout: { type: "string", enum: ["vertical", "horizontal", "layered", "tree"] },
-        nodes: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "节点临时 id，用于 edges 引用" },
-              text: { type: "string", description: "节点内显示文字" },
-              shape: { type: "string", description: "几何形状类型，如 rectangle/roundRectangle/diamond/ellipse/flowChartTerminator/flowChartProcess/flowChartDecision/flowChartInputOutput/can，默认 rectangle；历史别名 flowChartData 会自动映射" },
-              level: { type: "number", description: "layered 布局时的层级，0 为顶层" }
-            },
-            required: ["id", "text"]
-          }
-        },
-        edges: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              from: { type: "string" },
-              to: { type: "string" }
-            },
-            required: ["from", "to"]
-          }
-        },
-        canvas: {
-          type: "object",
-          description: "画布区域，默认 {left:40, top:80, width:880, height:420}",
-          properties: {
-            left: { type: "number" }, top: { type: "number" },
-            width: { type: "number" }, height: { type: "number" }
-          }
-        },
-        slideId: { type: "string" },
-        slideIndex: { type: "number" },
-        pageNumber: { type: "number" }
-      },
-      required: ["layout", "nodes", "edges"]
-    }
-  },
-  {
-    name: "draw_slide_shapes",
-    description: "批量自由绘制复杂框图。模型可直接决定每个框的位置、尺寸、颜色、字体、标题带和连接器；适合调用链、架构图、泳道图、时间线。连接器会通过真实 PowerPoint connector + XML 修正生成，返回临时 id 到真实 shapeId 的映射和新 slideId。",
-    input_schema: {
-      type: "object",
-      properties: {
-        slideId: { type: "string" },
-        slideIndex: { type: "number" },
-        pageNumber: { type: "number" },
-        title: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            text: { type: "string" },
-            left: { type: "number" },
-            top: { type: "number" },
-            width: { type: "number" },
-            height: { type: "number" },
-            fillColor: { type: "string" },
-            lineColor: { type: "string" },
-            textColor: { type: "string" },
-            fontSize: { type: "number" },
-            bold: { type: "boolean" }
-          }
-        },
-        shapes: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "临时 id，供 connectors 引用" },
-              type: { type: "string", enum: ["textBox", "geometricShape"] },
-              shapeType: { type: "string", description: "geometricShape 类型，默认 rectangle" },
-              text: { type: "string" },
-              left: { type: "number" },
-              top: { type: "number" },
-              width: { type: "number" },
-              height: { type: "number" },
-              fillColor: { type: "string" },
-              lineColor: { type: "string" },
-              lineWeight: { type: "number" },
-              textColor: { type: "string" },
-              fontSize: { type: "number" },
-              bold: { type: "boolean" }
-            },
-            required: ["id", "left", "top", "width", "height"]
-          }
-        },
-        connectors: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              from: { type: "string" },
-              fromSide: { type: "string", enum: ["top", "bottom", "left", "right"] },
-              to: { type: "string" },
-              toSide: { type: "string", enum: ["top", "bottom", "left", "right"] },
-              mode: { type: "string", enum: ["orthogonal", "direct"] },
-              arrow: { type: "string", enum: ["none", "end"] },
-              color: { type: "string" },
-              thickness: { type: "number" },
-              dashStyle: { type: "string", enum: ["solid", "dash", "dot", "dashDot"] }
-            },
-            required: ["from", "fromSide", "to", "toSide"]
-          }
-        }
-      },
-      required: ["shapes"]
-    }
-  },
-  {
     name: "read_slide_text",
     description: "读取指定形状的原始 OOXML <a:p> 段落 XML。ref 推荐来自 list_slide_shapes，格式 slideId:shapeId；也可传 slideId/pageNumber + shapeId。",
     input_schema: {
@@ -347,14 +229,69 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "edit_slide_xml",
-    description: "结构化修改目标幻灯片 OOXML，不接受任意代码字符串。支持 insertShapeXml、replaceShapeXml、deleteShapeXml、patchConnector、setSlideBackground。",
+    description: "结构化修改目标幻灯片 OOXML，不接受任意代码字符串。支持 insertShapeXml、replaceShapeXml、deleteShapeXml、patchConnector、setSlideBackground。每个 operation 必须包含 type 字段指定操作类型。",
     input_schema: {
       type: "object",
       properties: {
         slideId: { type: "string" },
         slideIndex: { type: "number" },
         pageNumber: { type: "number" },
-        operations: { type: "array", items: { type: "object" } },
+        operations: {
+          type: "array",
+          description: "操作列表，每个操作必须有 type 字段",
+          items: {
+            type: "object",
+            oneOf: [
+              {
+                properties: {
+                  type: { type: "string", enum: ["insertShapeXml"], description: "插入形状" },
+                  xml: { type: "string", description: "形状的 OOXML 字符串" }
+                },
+                required: ["type", "xml"]
+              },
+              {
+                properties: {
+                  type: { type: "string", enum: ["replaceShapeXml"], description: "替换形状" },
+                  shapeId: { type: "string", description: "目标形状 ID" },
+                  xml: { type: "string", description: "新形状的 OOXML 字符串" }
+                },
+                required: ["type", "shapeId", "xml"]
+              },
+              {
+                properties: {
+                  type: { type: "string", enum: ["deleteShapeXml"], description: "删除形状" },
+                  shapeId: { type: "string", description: "目标形状 ID" }
+                },
+                required: ["type", "shapeId"]
+              },
+              {
+                properties: {
+                  type: { type: "string", enum: ["patchConnector"], description: "修补连接器" },
+                  connectorShapeId: { type: "string", description: "连接器形状 ID" },
+                  fromShapeId: { type: "string", description: "起始形状 ID" },
+                  fromSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "起始连接边" },
+                  toShapeId: { type: "string", description: "目标形状 ID" },
+                  toSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "目标连接边" },
+                  start: { type: "string", description: "起始点坐标，格式 x,y（EMU）" },
+                  end: { type: "string", description: "终止点坐标，格式 x,y（EMU）" },
+                  connectorType: { type: "string", enum: ["elbow", "straight"], description: "连接器类型，默认 elbow" },
+                  arrow: { type: "string", enum: ["end", "none"], description: "箭头样式，默认 end" },
+                  color: { type: "string", description: "连接线颜色，十六进制如 #2F5597" },
+                  thickness: { type: "number", description: "线宽（pt），默认 2" },
+                  dashStyle: { type: "string", description: "虚线样式" }
+                },
+                required: ["type", "connectorShapeId", "fromShapeId", "fromSide", "toShapeId", "toSide"]
+              },
+              {
+                properties: {
+                  type: { type: "string", enum: ["setSlideBackground"], description: "设置幻灯片背景色" },
+                  color: { type: "string", description: "背景颜色，十六进制如 #FFFFFF" }
+                },
+                required: ["type", "color"]
+              }
+            ]
+          }
+        },
         autosizeShapeIds: { type: "array", items: { type: "string" } }
       },
       required: ["operations"]
@@ -387,7 +324,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "delete_shape",
-    description: "在指定幻灯片（默认当前选中页）内删除指定 shapeId 的形状。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。不会跨页搜索；删除前必须先用 get_current_context 查看目标页 allShapes，确认 slideId + shapeId。返回删除前 bounds，可用于 create_diagram.canvas 原位替换。",
+    description: "在指定幻灯片（默认当前选中页）内删除指定 shapeId 的形状。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。不会跨页搜索；删除前必须先用 get_current_context 查看目标页 allShapes，确认 slideId + shapeId。返回删除前 bounds，可用于原位替换时规划新图坐标。",
     input_schema: {
       type: "object",
       properties: {
@@ -745,8 +682,6 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   add_geometric_shape: addGeometricShape,
   add_line: addLine,
   connect_shapes: connectShapes,
-  create_diagram: createDiagram,
-  draw_slide_shapes: drawSlideShapes,
   read_slide_text: readSlideText,
   edit_slide_text: editSlideText,
   edit_slide_xml: editSlideXml,

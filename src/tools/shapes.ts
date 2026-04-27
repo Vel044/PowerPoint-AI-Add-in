@@ -202,7 +202,7 @@ export const deleteShape: ToolHandler = async (input) => {
     const bounds = await readShapeBounds(ctx, target);
     target.delete();
     await ctx.sync();
-    return `已删除幻灯片 ${slide.id} 上的形状 ${shapeId}（name=${name || "未知"}，bounds=${JSON.stringify(bounds)}）。如需替换该图形，可把这个 bounds 用作 create_diagram.canvas。`;
+    return `已删除幻灯片 ${slide.id} 上的形状 ${shapeId}（name=${name || "未知"}，bounds=${JSON.stringify(bounds)}）。如需替换该图形，可用这个 bounds 规划新图坐标。`;
   });
 };
 

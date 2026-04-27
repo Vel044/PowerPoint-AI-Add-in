@@ -78,8 +78,8 @@
 ## 检查点
 
 - [ ] 所有原工具正常工作
-- [ ] AI 不会在非绘图场景误调用 `create_diagram`
-- [ ] AI 不会在简单"画个框"场景误调用 `create_diagram`（应当用 `add_geometric_shape`）
+- [ ] AI 不会在非绘图场景误用绘图工具
+- [ ] AI 不会在简单"画个框"场景误走批量 XML（应当用 `add_geometric_shape`）
 - [ ] `get_current_context` 返回当前页 `allShapes` 和 `occupiedBounds`
 - [ ] `list_slides` 返回 `index/pageNumber/id`
 - [ ] `duplicate_slide` 后新页能被后续工具定位

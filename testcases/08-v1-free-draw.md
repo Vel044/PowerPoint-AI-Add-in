@@ -1,6 +1,6 @@
-# 08 · 自由框图
+# 08 · XML 自由框图
 
-覆盖 `draw_slide_shapes`、`verify_slides`、`verify_slide_visual`。
+覆盖 `edit_slide_xml`、`verify_slides`、`verify_slide_visual`。
 
 ## 输入 prompt
 
@@ -11,12 +11,12 @@
 ## 预期 tool call
 
 1. `list_slide_shapes` 或 `get_current_context`
-2. `draw_slide_shapes`
+2. `edit_slide_xml`
 3. `verify_slides`
 4. `verify_slide_visual`
 
 ## 检查点
 
-- [ ] 复杂框图使用 `draw_slide_shapes`，不是 `create_diagram`
+- [ ] 复杂框图使用结构化 `edit_slide_xml`
 - [ ] 节点不重叠，连接线方向清楚
 - [ ] `verify_slide_visual` 返回截图 artifact 路径
