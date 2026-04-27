@@ -24,7 +24,7 @@
 ### C. 删除形状
 
 ```
-删除 shape id 为 xxx 的形状。
+删除 第三页SQL 的形状。
 ```
 
 预期：先 `get_current_context` 确认当前页 `allShapes` 中存在该形状，再 `delete_shape({ slideId, shapeId })`；不会跨页搜索同名/同 id 形状。

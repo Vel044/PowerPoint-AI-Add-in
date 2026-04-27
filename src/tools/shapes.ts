@@ -2,24 +2,7 @@ import { ToolHandler } from "../types";
 import { withOfficeErrorContext } from "./officeErrors";
 import { normalizeConnectorType, normalizeGeometricShapeType } from "./shapeTypes";
 import { Side, applyConnectorXmlPatches, drawConnectedLine, resolveConnectorXmlPatches } from "./layout";
-
-export async function resolveSlide(ctx: PowerPoint.RequestContext, slideId?: string, slideIndex?: number) {
-  const slides = ctx.presentation.slides;
-  slides.load("items/id");
-  if (slideId === undefined && slideIndex === undefined) {
-    const sel = ctx.presentation.getSelectedSlides();
-    sel.load("items/id");
-    await ctx.sync();
-    if (sel.items.length > 0) return sel.items[0];
-  }
-  await ctx.sync();
-  if (slideId) {
-    const s = slides.items.find((x) => x.id === slideId);
-    if (s) return s;
-  }
-  if (typeof slideIndex === "number" && slides.items[slideIndex]) return slides.items[slideIndex];
-  throw new Error("无法定位目标幻灯片（未提供 slideId/slideIndex 且无选中）");
-}
+import { resolveSlide, slideTargetFromInput } from "./slideTarget";
 
 export const addTextBox: ToolHandler = async (input) => {
   const text = String(input.text ?? "");
@@ -28,7 +11,7 @@ export const addTextBox: ToolHandler = async (input) => {
   const width = (input.width as number) ?? 400;
   const height = (input.height as number) ?? 80;
   return await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shape = slide.shapes.addTextBox(text, { left, top, width, height });
     shape.load("id");
     await ctx.sync();
@@ -40,13 +23,13 @@ export const modifyShape: ToolHandler = async (input) => {
   const shapeId = String(input.shapeId ?? "");
   if (!shapeId) throw new Error("缺少 shapeId");
   return await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shapes = slide.shapes;
     shapes.load("items/id");
     await ctx.sync();
     const target = shapes.items.find((sh) => sh.id === shapeId);
     if (!target) {
-      throw new Error(`当前目标幻灯片（id=${slide.id}）上未找到形状 ${shapeId}。请先调用 get_current_context，用当前页 allShapes 中的 slideId + shapeId 操作。`);
+      throw new Error(`当前目标幻灯片（id=${slide.id}）上未找到形状 ${shapeId}。请先调用 get_current_context 查看目标页 allShapes，并使用其中的 slideId + shapeId 操作。`);
     }
     if (typeof input.text === "string") {
       target.textFrame.textRange.text = input.text as string;
@@ -68,7 +51,7 @@ export const addGeometricShape: ToolHandler = async (input) => {
   const width = (input.width as number) ?? 200;
   const height = (input.height as number) ?? 60;
   return await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shape = slide.shapes.addGeometricShape(shapeType, {
       left,
       top,
@@ -95,7 +78,7 @@ export const addLine: ToolHandler = async (input) => {
   const width = (input.width as number) ?? 100;
   const height = (input.height as number) ?? 0;
   return await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shape = slide.shapes.addLine(lineType, { left, top, width, height });
     shape.load("id");
     try {
@@ -132,14 +115,14 @@ export const connectShapes: ToolHandler = async (input) => {
   if (!fromShapeId || !toShapeId) throw new Error("缺少 fromShapeId 或 toShapeId");
 
   const result = await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shapeColl = slide.shapes;
     shapeColl.load("items/id");
     await ctx.sync();
     const idSet = new Set(shapeColl.items.map((s) => s.id));
     const missing = [fromShapeId, toShapeId].filter((id) => !idSet.has(id));
     if (missing.length > 0) {
-      throw new Error(`当前幻灯片（id=${slide.id}）上未找到形状: ${missing.join(", ")}。请先调用 get_current_context 确认形状 ID 与所在幻灯片，或传入 slideIndex/slideId。`);
+      throw new Error(`当前目标幻灯片（id=${slide.id}）上未找到形状: ${missing.join(", ")}。请先调用 get_current_context 确认目标页形状 ID，或传入 pageNumber/slideIndex/slideId。`);
     }
     const fromShape = slide.shapes.getItem(fromShapeId);
     const toShape = slide.shapes.getItem(toShapeId);
@@ -170,6 +153,7 @@ export const connectShapes: ToolHandler = async (input) => {
     return {
       slideId: slide.id,
       slideIndex: typeof input.slideIndex === "number" ? input.slideIndex as number : undefined,
+      pageNumber: typeof input.pageNumber === "number" ? input.pageNumber as number : undefined,
       connectorPatches: resolveConnectorXmlPatches([connector]),
       message: `已连接 ${fromShapeId}.${fromSide} → ${toShapeId}.${toSide}（${mode === "direct" ? "直连" : "自动横平竖直"}，Straight=${connector.straightConnectors}，Elbow=${connector.elbowConnectors}，总连接器=${connector.lineSegments}，原生箭头=${connector.arrows}）`,
     };
@@ -177,6 +161,7 @@ export const connectShapes: ToolHandler = async (input) => {
   const editResult = await applyConnectorXmlPatches({
     slideId: result.slideId,
     slideIndex: result.slideIndex,
+    pageNumber: result.pageNumber,
   }, result.connectorPatches);
   const slideText = editResult ? `；新 slideId=${editResult.newSlideId}` : "";
   return `${result.message}。已通过单页 export/import 修正真实 PowerPoint 连接器${slideText}。`;
@@ -186,13 +171,13 @@ export const deleteShape: ToolHandler = async (input) => {
   const shapeId = String(input.shapeId ?? "");
   if (!shapeId) throw new Error("缺少 shapeId");
   return await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shapes = slide.shapes;
     shapes.load("items/id,name");
     await ctx.sync();
     const target = shapes.items.find((sh) => sh.id === shapeId);
     if (!target) {
-      throw new Error(`当前目标幻灯片（id=${slide.id}）上未找到形状 ${shapeId}。不会跨页搜索删除；请先调用 get_current_context 确认当前页 allShapes。`);
+      throw new Error(`当前目标幻灯片（id=${slide.id}）上未找到形状 ${shapeId}。不会跨页搜索删除；请先调用 get_current_context 查看目标页 allShapes。`);
     }
 
     const name = safeString(() => target.name);

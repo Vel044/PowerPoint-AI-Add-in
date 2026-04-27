@@ -1,8 +1,8 @@
 import { ToolHandler } from "../types";
 import { editCurrentSlideXml, SlideXmlEditResult } from "./ooxml";
 import { describeOfficeError, withOfficeErrorContext } from "./officeErrors";
-import { resolveSlide } from "./shapes";
 import { normalizeGeometricShapeType } from "./shapeTypes";
+import { resolveSlide, slideTargetFromInput } from "./slideTarget";
 
 type LayoutMode = "vertical" | "horizontal" | "layered" | "tree";
 type NodeShape = string;
@@ -204,7 +204,7 @@ export function resolveConnectorXmlPatches(results: ConnectorCreationResult[]): 
 }
 
 export async function applyConnectorXmlPatches(
-  target: { slideId?: string; slideIndex?: number },
+  target: { slideId?: string; slideIndex?: number; pageNumber?: number },
   patches: ConnectorXmlPatch[],
 ): Promise<SlideXmlEditResult | null> {
   if (patches.length === 0) return null;
@@ -544,7 +544,7 @@ export const createDiagram: ToolHandler = async (input) => {
   }
 
   const result = await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, input.slideId as string, input.slideIndex as number);
+    const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const idMap: Record<string, string> = {};
     const actualPlaced = new Map<string, Placed>();
     const logLines: string[] = [`[createDiagram] layout=${layout} canvas=${JSON.stringify(canvas)}`];
@@ -620,6 +620,7 @@ export const createDiagram: ToolHandler = async (input) => {
     return {
       slideId: slide.id,
       slideIndex: typeof input.slideIndex === "number" ? input.slideIndex as number : undefined,
+      pageNumber: typeof input.pageNumber === "number" ? input.pageNumber as number : undefined,
       connectorPatches,
       message: `已创建图：${nodes.length} 节点、${edges.length} 连线（Straight=${straightConnectors}，Elbow=${elbowConnectors}，总连接器=${lineSegments}；原生箭头=${arrowHeads}）。节点 id 映射: ${mapStr}`,
     };
@@ -629,6 +630,7 @@ export const createDiagram: ToolHandler = async (input) => {
     editResult = await applyConnectorXmlPatches({
       slideId: result.slideId,
       slideIndex: result.slideIndex,
+      pageNumber: result.pageNumber,
     }, result.connectorPatches);
   } catch (error) {
     throw new Error(`连接器 XML 修正失败: ${describeOfficeError(error) || String(error)}`);

@@ -1,27 +1,28 @@
 import { ToolHandler } from "../types";
-import { resolveSlide } from "./shapes";
 import { getActiveProvider, loadConfig, resolveModel } from "../config";
+import { pageNumberFromIndex, resolveSlide, slideTargetFromInput } from "./slideTarget";
 
 export const reviewSlide: ToolHandler = async (input, toolCtx) => {
-  const slideIndex = input.slideIndex as number | undefined;
-  const slideId = input.slideId as string | undefined;
+  const target = slideTargetFromInput(input);
   const question =
     (input.question as string) ||
     '请只检查这张幻灯片上最近新添加的形状和连线，忽略旧内容。检查是否有：1) 形状重叠 2) 连线歪斜（没从一个形状中心连到另一个形状中心）3) 文字溢出形状边界 4) 布局明显不对齐。请用 JSON 回复：{"ok": true/false, "issues": [{"type": "重叠/歪斜/溢出/不对齐", "desc": "描述", "fix": "修正建议"}]}。没问题则 {"ok": true, "issues": []}';
 
   return await PowerPoint.run(async (ctx) => {
-    const slide = await resolveSlide(ctx, slideId, slideIndex);
+    const slide = await resolveSlide(ctx, target);
 
     let base64Png: string;
     let actualSlideIndex: number | null = null;
+    let actualPageNumber: number | null = null;
     try {
       const imgResult = (slide as any).getImageAsBase64({ width: 1280 });
       await ctx.sync();
       base64Png = imgResult.value;
       const slides = ctx.presentation.slides;
-      slides.load("items/id");
+      slides.load("items/id,index");
       await ctx.sync();
       actualSlideIndex = slides.items.findIndex((s) => s.id === slide.id);
+      actualPageNumber = pageNumberFromIndex(actualSlideIndex);
     } catch {
       return "截图功能不可用（当前 PowerPoint 版本不支持 getImageAsBase64）。请用 get_current_context 检查形状位置来自查。";
     }
@@ -30,8 +31,10 @@ export const reviewSlide: ToolHandler = async (input, toolCtx) => {
       tool: "review_slide",
       slideId: slide.id,
       slideIndex: actualSlideIndex,
-      requestedSlideId: slideId ?? null,
-      requestedSlideIndex: slideIndex ?? null,
+      pageNumber: actualPageNumber,
+      requestedSlideId: target.slideId ?? null,
+      requestedSlideIndex: target.slideIndex ?? null,
+      requestedPageNumber: target.pageNumber ?? null,
       question,
       timestamp: new Date().toISOString()
     });

@@ -1,4 +1,5 @@
 import { ToolHandler } from "../types";
+import { resolveSlide } from "./slideTarget";
 
 export const addSlide: ToolHandler = async () => {
   return await PowerPoint.run(async (ctx) => {
@@ -9,16 +10,18 @@ export const addSlide: ToolHandler = async () => {
 };
 
 export const deleteSlide: ToolHandler = async (input) => {
-  const index = input.index as number | undefined;
-  const id = input.slideId as string | undefined;
+  const hasExplicitTarget =
+    typeof input.slideId === "string" ||
+    typeof input.index === "number" ||
+    typeof input.slideIndex === "number" ||
+    typeof input.pageNumber === "number";
+  if (!hasExplicitTarget) throw new Error("删除幻灯片必须提供 slideId、index/slideIndex 或 pageNumber");
   return await PowerPoint.run(async (ctx) => {
-    const slides = ctx.presentation.slides;
-    slides.load("items/id");
-    await ctx.sync();
-    let target: PowerPoint.Slide | undefined;
-    if (id) target = slides.items.find((s) => s.id === id);
-    else if (typeof index === "number") target = slides.items[index];
-    if (!target) throw new Error("未找到目标幻灯片");
+    const target = await resolveSlide(ctx, {
+      slideId: typeof input.slideId === "string" ? input.slideId : undefined,
+      slideIndex: typeof input.index === "number" ? input.index : typeof input.slideIndex === "number" ? input.slideIndex : undefined,
+      pageNumber: typeof input.pageNumber === "number" ? input.pageNumber : undefined,
+    });
     target.delete();
     await ctx.sync();
     return `已删除幻灯片 (id=${target.id})`;

@@ -1,26 +1,41 @@
 import { ToolHandler } from "../types";
+import { pageNumberFromIndex, resolveSlide, slideTargetFromInput } from "./slideTarget";
 
-export const getCurrentContext: ToolHandler = async () => {
+export const getCurrentContext: ToolHandler = async (input) => {
   try {
     return await PowerPoint.run(async (ctx) => {
       const pres = ctx.presentation;
       const selectedSlides = pres.getSelectedSlides();
-      selectedSlides.load("items/id");
+      selectedSlides.load("items/id,index");
       const allSlides = pres.slides;
-      allSlides.load("items/id");
+      allSlides.load("items/id,index");
       await ctx.sync();
 
       const slideIds = allSlides.items.map((s) => s.id);
       const currentSlideIds = selectedSlides.items.map((s) => s.id);
       const currentIndexes = currentSlideIds.map((id) => slideIds.indexOf(id));
+      const currentPageNumbers = currentIndexes.map((index) => pageNumberFromIndex(index)).filter((n): n is number => n !== null);
       const currentSlide = selectedSlides.items[0] ?? null;
       const currentSlideId = currentSlide?.id ?? null;
       const currentSlideIndex = currentSlideId ? slideIds.indexOf(currentSlideId) : null;
+      const currentPageNumber = pageNumberFromIndex(currentSlideIndex);
+      const requestedTarget = slideTargetFromInput(input);
+      const shouldInspectTarget =
+        requestedTarget.slideId !== undefined ||
+        requestedTarget.slideIndex !== undefined ||
+        requestedTarget.pageNumber !== undefined;
+      const inspectedSlide = shouldInspectTarget
+        ? await resolveSlide(ctx, requestedTarget)
+        : currentSlide;
+      const inspectedSlideId = inspectedSlide?.id ?? null;
+      const inspectedSlideIndex = inspectedSlideId ? slideIds.indexOf(inspectedSlideId) : null;
+      const inspectedPageNumber = pageNumberFromIndex(inspectedSlideIndex);
 
-      const allShapes = currentSlide
-        ? (await collectShapeInfos(ctx, currentSlide.shapes)).map((shape) => ({
-            slideId: currentSlideId,
-            slideIndex: currentSlideIndex,
+      const allShapes = inspectedSlide
+        ? (await collectShapeInfos(ctx, inspectedSlide.shapes)).map((shape) => ({
+            slideId: inspectedSlideId,
+            slideIndex: inspectedSlideIndex,
+            pageNumber: inspectedPageNumber,
             ...shape
           }))
         : [];
@@ -31,8 +46,13 @@ export const getCurrentContext: ToolHandler = async () => {
           totalSlides: slideIds.length,
           selectedSlideIds: currentSlideIds,
           selectedSlideIndexes: currentIndexes,
+          selectedPageNumbers: currentPageNumbers,
           currentSlideId,
           currentSlideIndex,
+          currentPageNumber,
+          inspectedSlideId,
+          inspectedSlideIndex,
+          inspectedPageNumber,
           occupiedBounds: computeOccupiedBounds(allShapes),
           allShapes,
           selectedShapes
@@ -57,6 +77,7 @@ export const getCurrentContext: ToolHandler = async () => {
 type ShapeInfo = {
   slideId?: string | null;
   slideIndex?: number | null;
+  pageNumber?: number | null;
   id: string;
   name: string;
   type: string | null;
@@ -191,9 +212,9 @@ function computeOccupiedBounds(shapes: ShapeInfo[]) {
 export const listSlides: ToolHandler = async () => {
   return await PowerPoint.run(async (ctx) => {
     const slides = ctx.presentation.slides;
-    slides.load("items/id");
+    slides.load("items/id,index");
     await ctx.sync();
-    const out = slides.items.map((s, i) => ({ index: i, id: s.id }));
+    const out = slides.items.map((s, i) => ({ index: i, pageNumber: i + 1, id: s.id }));
     return JSON.stringify(out);
   });
 };

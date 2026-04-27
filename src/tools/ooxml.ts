@@ -1,12 +1,8 @@
 import JSZip from "jszip";
 import { withOfficeErrorContext } from "./officeErrors";
+import { resolveSlide, SlideTarget } from "./slideTarget";
 
 type SlideXmlMutator = (doc: Document) => void;
-
-interface SlideXmlTarget {
-  slideId?: string;
-  slideIndex?: number;
-}
 
 export interface SlideXmlEditResult {
   oldSlideId: string;
@@ -17,10 +13,10 @@ export interface SlideXmlEditResult {
 
 const SLIDE_XML_PATH = "ppt/slides/slide1.xml";
 
-export async function editCurrentSlideXml(target: SlideXmlTarget, mutator: SlideXmlMutator): Promise<SlideXmlEditResult> {
+export async function editCurrentSlideXml(target: SlideTarget, mutator: SlideXmlMutator): Promise<SlideXmlEditResult> {
   return await PowerPoint.run(async (ctx) => {
     const presentation = ctx.presentation;
-    const slide = await resolveTargetSlide(ctx, target);
+    const slide = await resolveSlide(ctx, target);
     const slides = presentation.slides;
     slides.load("items/id,index");
     slide.load("id,index");
@@ -72,29 +68,6 @@ async function syncWithContext(ctx: PowerPoint.RequestContext, message: string):
   } catch (error) {
     throw withOfficeErrorContext(error, message);
   }
-}
-
-async function resolveTargetSlide(ctx: PowerPoint.RequestContext, target: SlideXmlTarget): Promise<PowerPoint.Slide> {
-  const slides = ctx.presentation.slides;
-  slides.load("items/id,index");
-  if (target.slideId === undefined && target.slideIndex === undefined) {
-    const selectedSlides = ctx.presentation.getSelectedSlides();
-    selectedSlides.load("items/id,index");
-    await syncWithContext(ctx, "读取当前选中幻灯片失败");
-    if (selectedSlides.items.length > 0) return selectedSlides.items[0];
-  } else {
-    await syncWithContext(ctx, "读取幻灯片列表失败");
-  }
-
-  if (target.slideId) {
-    const slide = slides.items.find((item) => item.id === target.slideId);
-    if (slide) return slide;
-  }
-  if (typeof target.slideIndex === "number") {
-    const slide = slides.items.find((item) => item.index === target.slideIndex) ?? slides.items[target.slideIndex];
-    if (slide) return slide;
-  }
-  throw new Error("无法定位要原位修正 XML 的幻灯片。");
 }
 
 async function patchSlideXml(base64: string, mutator: SlideXmlMutator): Promise<string> {
