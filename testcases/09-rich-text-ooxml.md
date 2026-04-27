@@ -13,12 +13,12 @@
 1. `list_slide_shapes`
 2. `read_slide_text`
 3. `edit_slide_text`
-4. `edit_slide_xml`（`setSlideBackground`）
+4. `edit_slide_xml`（`code` 读取 `ppt/slides/slide1.xml` 并修改背景 XML）
 5. `verify_slides`
 
 ## 检查点
 
 - [ ] `read_slide_text` 返回 `<a:p>` 片段
 - [ ] `edit_slide_text` 使用 `ref` 或 `slideId + shapeId`
-- [ ] `edit_slide_xml` 不接受任意 `code`，只接受 `operations[]`
+- [ ] `edit_slide_xml` 使用 `code:string`，修改后调用 `markDirty()` 并返回 before/after XML artifact
 - [ ] 背景修改后仍能定位新 slide id

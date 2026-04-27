@@ -25,7 +25,7 @@ import {
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "get_current_context",
-    description: "读取 PowerPoint 上下文。默认返回当前选中页；也可传 slideId、slideIndex(0-based) 或 pageNumber(1-based) 静默查看任意页的 allShapes、occupiedBounds，而不切换当前选中页。返回当前真实选择信息，以及 inspectedSlideId/inspectedSlideIndex/inspectedPageNumber 以区分“当前页”和“查看页”。删除/修改前应先用这个工具确认目标页的 slideId + shapeId。",
+    description: "读取 PowerPoint 上下文。默认返回当前选中页；也可传 slideId、slideIndex(0-based) 或 pageNumber(1-based) 静默查看任意页的 allShapes、occupiedBounds，而不切换当前选中页。返回当前真实选择信息，以及 inspectedSlideId/inspectedSlideIndex/inspectedPageNumber 以区分”当前页”和”查看页”。删除/修改前应先用这个工具确认目标页的 slideId + shapeId。返回 slideWidth/slideHeight（pt）表示幻灯片画布实际尺寸，画图前必须先调用此工具确认。同时返回 themePalette/isDefaultTheme：当用户使用自定义品牌主题时，themePalette 提供 dk1/lt1/accent1-6 等主题色 hex 值（不带 #）；默认 Office 主题时 themePalette 为 null。",
     input_schema: {
       type: "object",
       properties: {
@@ -105,7 +105,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "add_text_box",
-    description: "在指定幻灯片（默认当前选中）上插入一个文本框。支持 fillColor/lineColor/lineWeight/textColor/fontSize/bold 样式参数。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。",
+    description: "在指定幻灯片（默认当前选中）上插入一个文本框。支持 fillColor/lineColor/lineWeight/textColor/fontSize/bold 样式参数。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。省略 fillColor/lineColor/textColor 时形状继承演示文稿主题默认样式，通常效果更好。坐标单位为点(pt)；请先用 get_current_context 确认画布尺寸和已有形状位置。",
     input_schema: {
       type: "object",
       properties: {
@@ -129,7 +129,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "add_geometric_shape",
-    description: "在幻灯片上添加一个几何形状（矩形/圆角矩形/椭圆/菱形等），可以带文字。支持 fillColor/lineColor/lineWeight/textColor/fontSize/bold。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。shapeType 支持 rectangle、roundRectangle、ellipse、diamond、flowChartTerminator、flowChartDecision、flowChartInputOutput、can 等；历史别名 flowChartData 会自动映射。",
+    description: "在幻灯片上添加一个几何形状（矩形/圆角矩形/椭圆/菱形等），可以带文字。支持 fillColor/lineColor/lineWeight/textColor/fontSize/bold。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。shapeType 支持 rectangle、roundRectangle、ellipse、diamond、flowChartTerminator、flowChartDecision、flowChartInputOutput、can 等；历史别名 flowChartData 会自动映射。省略 fillColor/lineColor/textColor 时形状继承演示文稿主题默认样式，通常效果更好。坐标单位为点(pt)；请先用 get_current_context 确认画布尺寸和已有形状位置。",
     input_schema: {
       type: "object",
       properties: {
@@ -154,7 +154,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "add_line",
-    description: "在指定幻灯片上添加一条原生线条。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。连接两个形状表达调用/数据流向时优先用 connect_shapes。lineType 支持：straight、elbow、curve（curved 会自动映射到 curve）。坐标以 (left, top) 为起点，(left+width, top+height) 为终点。",
+    description: "在指定幻灯片上添加一条原生线条。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。连接两个形状表达调用/数据流向时优先用 connect_shapes。lineType 支持：straight、elbow、curve（curved 会自动映射到 curve）。坐标以 (left, top) 为起点，(left+width, top+height) 为终点。坐标单位为点(pt)；请先用 get_current_context 确认画布尺寸和已有形状位置。",
     input_schema: {
       type: "object",
       properties: {
@@ -176,7 +176,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "connect_shapes",
-    description: "连接指定幻灯片上的两个形状。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。mode=\"orthogonal\" 时端点同 X/Y 用真实 Straight connector，否则使用真实 bentConnector3 肘形连接器；mode=\"direct\" 强制一段真实 Straight connector。fromSide/toSide 指定起止形状的哪条边中点。arrow=\"end\" 会通过 PowerPoint 原生 tailEnd 箭头指向终点形状。工具会通过单页 export/import 修正 XML，返回的新 slideId 应用于后续操作。",
+    description: "连接指定幻灯片上的两个形状。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。mode=\"orthogonal\" 时端点同 X/Y 用真实 Straight connector，否则使用真实 bentConnector3 肘形连接器；mode=\"direct\" 强制一段真实 Straight connector。fromSide/toSide 指定起止形状的哪条边中点。arrow=\"end\" 会通过 PowerPoint 原生 tailEnd 箭头指向终点形状。工具会通过单页 export/import 修正 XML，返回的新 slideId 应用于后续操作。省略 color 时连接线继承主题默认线条颜色。",
     input_schema: {
       type: "object",
       properties: {
@@ -229,77 +229,35 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "edit_slide_xml",
-    description: "结构化修改目标幻灯片 OOXML，不接受任意代码字符串。支持 insertShapeXml、replaceShapeXml、deleteShapeXml、patchConnector、setSlideBackground。每个 operation 必须包含 type 字段指定操作类型。",
+    description: "Claude 风格原位编辑目标幻灯片 OOXML：传入 async JS 函数体 code，工具导出单页 PPTX 为 JSZip，注入 zip、markDirty 和 pptx helper，执行后重新插回并删除旧页。普通画图优先用 pptx.addShape(...); pptx.addConnector(...); pptx.save(); markDirty();，不要手写大段 createElementNS。pptx.openSlide() 固定使用 ppt/slides/slide1.xml。仍可直接用 zip 做高级 patch。执行前后会保存 debug-artifacts/edit-slide-xml/*.xml，并返回新 slideId。",
     input_schema: {
       type: "object",
       properties: {
         slideId: { type: "string" },
         slideIndex: { type: "number" },
         pageNumber: { type: "number" },
-        operations: {
-          type: "array",
-          description: "操作列表，每个操作必须有 type 字段",
-          items: {
-            type: "object",
-            oneOf: [
-              {
-                properties: {
-                  type: { type: "string", enum: ["insertShapeXml"], description: "插入形状" },
-                  xml: { type: "string", description: "形状的 OOXML 字符串" }
-                },
-                required: ["type", "xml"]
-              },
-              {
-                properties: {
-                  type: { type: "string", enum: ["replaceShapeXml"], description: "替换形状" },
-                  shapeId: { type: "string", description: "目标形状 ID" },
-                  xml: { type: "string", description: "新形状的 OOXML 字符串" }
-                },
-                required: ["type", "shapeId", "xml"]
-              },
-              {
-                properties: {
-                  type: { type: "string", enum: ["deleteShapeXml"], description: "删除形状" },
-                  shapeId: { type: "string", description: "目标形状 ID" }
-                },
-                required: ["type", "shapeId"]
-              },
-              {
-                properties: {
-                  type: { type: "string", enum: ["patchConnector"], description: "修补连接器" },
-                  connectorShapeId: { type: "string", description: "连接器形状 ID" },
-                  fromShapeId: { type: "string", description: "起始形状 ID" },
-                  fromSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "起始连接边" },
-                  toShapeId: { type: "string", description: "目标形状 ID" },
-                  toSide: { type: "string", enum: ["top", "bottom", "left", "right"], description: "目标连接边" },
-                  start: { type: "string", description: "起始点坐标，格式 x,y（EMU）" },
-                  end: { type: "string", description: "终止点坐标，格式 x,y（EMU）" },
-                  connectorType: { type: "string", enum: ["elbow", "straight"], description: "连接器类型，默认 elbow" },
-                  arrow: { type: "string", enum: ["end", "none"], description: "箭头样式，默认 end" },
-                  color: { type: "string", description: "连接线颜色，十六进制如 #2F5597" },
-                  thickness: { type: "number", description: "线宽（pt），默认 2" },
-                  dashStyle: { type: "string", description: "虚线样式" }
-                },
-                required: ["type", "connectorShapeId", "fromShapeId", "fromSide", "toShapeId", "toSide"]
-              },
-              {
-                properties: {
-                  type: { type: "string", enum: ["setSlideBackground"], description: "设置幻灯片背景色" },
-                  color: { type: "string", description: "背景颜色，十六进制如 #FFFFFF" }
-                },
-                required: ["type", "color"]
-              }
-            ]
-          }
+        code: {
+          type: "string",
+          description: "async 函数体，不要包 async function。优先使用 pptx helper：const a=pptx.addShape({id:'a',shapeType:'roundRect',text:'A',left:40,top:40,width:160,height:60}); const b=pptx.addShape(...); pptx.addConnector({from:a,fromSide:'right',to:b,toSide:'left'}); pptx.save(); markDirty();。也可直接使用 zip、DOMParser、XMLSerializer 做高级 XML patch。"
         },
-        autosizeShapeIds: { type: "array", items: { type: "string" } }
+        autosize_shape_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "可选：写回前给这些 shape id 的 bodyPr 确保 a:normAutofit"
+        },
+        autosizeShapeIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "兼容字段，等价于 autosize_shape_ids"
+        },
+        explanation: { type: "string", description: "本次 XML 编辑意图，写入 artifact metadata" }
       },
-      required: ["operations"]
+      required: ["code"]
     }
   },
   {
     name: "modify_shape",
-    description: "在指定幻灯片（默认当前选中页）内按 shapeId 修改一个形状：文字、位置、大小、样式。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。不会跨页搜索；删除/修改前必须先用 list_slide_shapes 或 get_current_context 确认目标。",
+    description: "在指定幻灯片（默认当前选中页）内按 shapeId 修改一个形状：文字、位置、大小、样式。目标页可用 slideId、slideIndex(0-based) 或 pageNumber(1-based) 指定。不会跨页搜索；删除/修改前必须先用 list_slide_shapes 或 get_current_context 确认目标。省略 fillColor/lineColor/textColor 时形状继承演示文稿主题默认样式，通常效果更好。",
     input_schema: {
       type: "object",
       properties: {

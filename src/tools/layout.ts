@@ -4,7 +4,7 @@ export type Side = "top" | "bottom" | "left" | "right";
 
 export interface Rect { left: number; top: number; width: number; height: number; }
 
-const CONNECTOR_COLOR = "#2F5597";
+const CONNECTOR_COLOR = "";
 const CONNECTOR_THICKNESS = 2;
 const CONNECTOR_EPSILON = 0.01;
 const POINT_TO_EMU = 12700;
@@ -83,7 +83,7 @@ function addConnectorPlaceholder(
     height,
   });
   shape.lineFormat.visible = true;
-  shape.lineFormat.color = color;
+  if (color) shape.lineFormat.color = color;
   shape.lineFormat.weight = thickness;
   shape.lineFormat.dashStyle = normalizeDashStyle(dashStyle ?? "solid") as any;
   shape.lineFormat.style = "Single";
@@ -268,9 +268,15 @@ function setLine(doc: Document, spPr: Element, patch: ConnectorXmlPatch): void {
   line.setAttribute("algn", "ctr");
 
   const solidFill = doc.createElementNS(A_NS, "a:solidFill");
-  const srgbClr = doc.createElementNS(A_NS, "a:srgbClr");
-  srgbClr.setAttribute("val", normalizeColor(patch.color));
-  solidFill.appendChild(srgbClr);
+  if (patch.color) {
+    const srgbClr = doc.createElementNS(A_NS, "a:srgbClr");
+    srgbClr.setAttribute("val", normalizeColor(patch.color));
+    solidFill.appendChild(srgbClr);
+  } else {
+    const schemeClr = doc.createElementNS(A_NS, "a:schemeClr");
+    schemeClr.setAttribute("val", "tx1");
+    solidFill.appendChild(schemeClr);
+  }
 
   const dash = doc.createElementNS(A_NS, "a:prstDash");
   dash.setAttribute("val", normalizePresetDash(patch.dashStyle ?? "solid"));

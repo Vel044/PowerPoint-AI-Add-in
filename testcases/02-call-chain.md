@@ -8,7 +8,7 @@
 
 ## 预期行为
 
-- 复杂调用链优先结构化 `edit_slide_xml`
+- 复杂调用链优先 Claude 风格 `edit_slide_xml({ code })`，code 应主要是布局数组和 `pptx` helper 调用
 - AI 自己决定 OOXML 中的坐标、尺寸、颜色和连接线
 - 画完后调用 `verify_slides`；视觉检查任务还应调用 `verify_slide_visual`
 

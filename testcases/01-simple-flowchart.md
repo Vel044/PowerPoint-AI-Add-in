@@ -9,7 +9,7 @@
 ## 预期行为
 
 - AI 调用 `get_current_context`
-- 调用结构化 `edit_slide_xml`，批量插入 6 个节点和 6 条真实连接器：
+- 调用 Claude 风格 `edit_slide_xml({ code })`，code 应使用 `pptx.openSlide/addShape/addConnector/save` 批量插入 6 个节点和 6 条真实连接器：
   - 起止用 terminator 或圆角矩形风格、判断用 diamond、过程用 rectangle
   - 连接器包含开始到输入、输入到判断、判断到两条分支、两条分支汇合到结束
 - 画完后调用 `verify_slides` 和截图检查

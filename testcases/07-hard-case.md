@@ -26,7 +26,7 @@ motors_bus._sync_write(addr=42, length=2, ids_values={1:1891,...,6:34})
 
 ## 预期行为
 
-- 优先一次结构化 `edit_slide_xml`，由模型自由决定每个框的坐标、尺寸、颜色、字体和连接器
+- 优先一次 Claude 风格 `edit_slide_xml({ code })`，由模型自由决定每个框的坐标、尺寸、颜色、字体和连接器，但应通过 `pptx` helper 生成 OOXML
 - 可以用标题带标注“左至右：层次 / 上至下：时间”
 - edges/连接器体现父子调用关系
 - `for` 循环、序列化、物理帧写入可以用不同颜色分组

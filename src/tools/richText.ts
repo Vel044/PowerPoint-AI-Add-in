@@ -1,7 +1,6 @@
 import { ToolHandler } from "../types";
-import { ConnectorXmlPatch, patchConnectorXml } from "./layout";
-import { parseShapeRef, targetFromRefOrInput } from "./refs";
-import { editCurrentSlideXml, readCurrentSlideXml, serializeXmlElement } from "./ooxml";
+import { targetFromRefOrInput } from "./refs";
+import { editCurrentSlideXml, editCurrentSlideZip, readCurrentSlideXml, serializeXmlElement } from "./ooxml";
 
 const P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -50,68 +49,39 @@ export const editSlideText: ToolHandler = async (input) => {
 };
 
 export const editSlideXml: ToolHandler = async (input) => {
-  const operations = Array.isArray(input.operations) ? input.operations as Array<Record<string, unknown>> : [];
-  if (operations.length === 0) throw new Error("缺少 operations");
-  const result = await editCurrentSlideXml({
+  const code = typeof input.code === "string" ? input.code : "";
+  if (!code.trim()) throw new Error("缺少 code。edit_slide_xml 现在只支持 Claude 风格 code:string，不再支持 operations[]。");
+
+  const autosizeShapeIds = stringArray(input.autosize_shape_ids ?? input.autosizeShapeIds);
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (env: {
+    zip: unknown;
+    markDirty: () => void;
+    pptx: unknown;
+  }) => Promise<unknown>;
+  const fn = new AsyncFunction("{ zip, markDirty, pptx }", code);
+  const result = await editCurrentSlideZip({
     slideId: typeof input.slideId === "string" ? input.slideId : undefined,
     slideIndex: typeof input.slideIndex === "number" ? input.slideIndex : undefined,
     pageNumber: typeof input.pageNumber === "number" ? input.pageNumber : undefined,
-  }, (doc) => {
-    for (const operation of operations) applyXmlOperation(doc, operation);
+  }, async ({ zip, markDirty, pptx }) => {
+    await fn({ zip, markDirty, pptx });
+  }, {
+    autosizeShapeIds,
+    artifactMetadata: {
+      tool: "edit_slide_xml",
+      explanation: typeof input.explanation === "string" ? input.explanation : "",
+      timestamp: new Date().toISOString(),
+    },
   });
-  return `已执行 ${operations.length} 个结构化 XML 操作；oldSlideId=${result.oldSlideId}；newSlideId=${result.newSlideId}`;
+  const paths = [
+    result.artifacts.beforeXmlPath ? `before=${result.artifacts.beforeXmlPath}` : "",
+    result.artifacts.afterXmlPath ? `after=${result.artifacts.afterXmlPath}` : "",
+  ].filter(Boolean).join("；");
+  if (!result.dirty) {
+    return `code 已执行，但没有调用 markDirty()，未写回 PowerPoint。oldSlideId=${result.oldSlideId}${paths ? `；artifact: ${paths}` : ""}`;
+  }
+  return `已执行 Claude 风格 edit_slide_xml code，并通过单页 export/import 写回当前 PowerPoint；oldSlideId=${result.oldSlideId}；newSlideId=${result.newSlideId}；newSlideIndex=${result.newSlideIndex}；artifact: ${paths || "未保存"}`;
 };
-
-function applyXmlOperation(doc: Document, operation: Record<string, unknown>): void {
-  const type = String(operation.type ?? "");
-  if (type === "insertShapeXml") {
-    const xml = requireXml(operation.xml);
-    const spTree = doc.getElementsByTagNameNS(P_NS, "spTree")[0];
-    if (!spTree) throw new Error("slide XML 中未找到 spTree");
-    spTree.appendChild(doc.importNode(parseSingleElement(xml), true));
-    return;
-  }
-  if (type === "replaceShapeXml") {
-    const shapeId = requireString(operation.shapeId, "shapeId");
-    const shape = findShape(doc, shapeId);
-    if (!shape) throw new Error(`slide XML 中未找到形状 ${shapeId}`);
-    shape.parentNode?.replaceChild(doc.importNode(parseSingleElement(requireXml(operation.xml)), true), shape);
-    return;
-  }
-  if (type === "deleteShapeXml") {
-    const shapeId = requireString(operation.shapeId, "shapeId");
-    const shape = findShape(doc, shapeId);
-    if (!shape) throw new Error(`slide XML 中未找到形状 ${shapeId}`);
-    shape.parentNode?.removeChild(shape);
-    return;
-  }
-  if (type === "patchConnector") {
-    patchConnectorXml(doc, connectorPatchFromOperation(operation));
-    return;
-  }
-  if (type === "setSlideBackground") {
-    setSlideBackground(doc, requireString(operation.color, "color"));
-    return;
-  }
-  throw new Error(`不支持的 edit_slide_xml operation.type=${type || "empty"}`);
-}
-
-function connectorPatchFromOperation(operation: Record<string, unknown>): ConnectorXmlPatch {
-  return {
-    connectorShapeId: requireString(operation.connectorShapeId, "connectorShapeId"),
-    fromShapeId: requireString(operation.fromShapeId, "fromShapeId"),
-    fromSide: sideValue(operation.fromSide, "fromSide"),
-    toShapeId: requireString(operation.toShapeId, "toShapeId"),
-    toSide: sideValue(operation.toSide, "toSide"),
-    start: pointValue(operation.start, "start"),
-    end: pointValue(operation.end, "end"),
-    connectorType: String(operation.connectorType ?? "elbow") === "straight" ? "straight" : "elbow",
-    arrow: String(operation.arrow ?? "end") === "none" ? "none" : "end",
-    color: typeof operation.color === "string" ? operation.color : "#2F5597",
-    thickness: typeof operation.thickness === "number" ? operation.thickness : 2,
-    dashStyle: typeof operation.dashStyle === "string" ? operation.dashStyle : undefined,
-  };
-}
 
 function findShape(doc: Document, shapeId: string): Element | null {
   const candidates = [
@@ -159,54 +129,7 @@ function parseParagraphs(xml: string): Element[] {
   return paragraphs;
 }
 
-function parseSingleElement(xml: string): Element {
-  const doc = new DOMParser().parseFromString(
-    `<root xmlns:a="${A_NS}" xmlns:p="${P_NS}">${xml}</root>`,
-    "application/xml"
-  );
-  const error = doc.getElementsByTagName("parsererror")[0];
-  if (error) throw new Error(`XML 解析失败: ${error.textContent?.trim() ?? "unknown parser error"}`);
-  const element = Array.from(doc.documentElement.childNodes).find((node) => node.nodeType === Node.ELEMENT_NODE) as Element | undefined;
-  if (!element) throw new Error("XML 操作必须包含一个元素");
-  return element;
-}
-
-function setSlideBackground(doc: Document, color: string): void {
-  const cSld = doc.getElementsByTagNameNS(P_NS, "cSld")[0];
-  if (!cSld) throw new Error("slide XML 中未找到 cSld");
-  const oldBg = firstChildByNs(cSld, P_NS, "bg");
-  if (oldBg) cSld.removeChild(oldBg);
-  const bg = doc.createElementNS(P_NS, "p:bg");
-  const bgPr = doc.createElementNS(P_NS, "p:bgPr");
-  const solidFill = doc.createElementNS(A_NS, "a:solidFill");
-  const srgbClr = doc.createElementNS(A_NS, "a:srgbClr");
-  srgbClr.setAttribute("val", color.replace(/^#/, "").toUpperCase());
-  solidFill.appendChild(srgbClr);
-  bgPr.appendChild(solidFill);
-  bg.appendChild(bgPr);
-  cSld.insertBefore(bg, cSld.firstChild);
-}
-
-function requireXml(value: unknown): string {
-  const xml = typeof value === "string" ? value.trim() : "";
-  if (!xml) throw new Error("XML 操作缺少 xml");
-  return xml;
-}
-
-function requireString(value: unknown, name: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`缺少 ${name}`);
-  return value.trim();
-}
-
-function sideValue(value: unknown, name: string): "top" | "bottom" | "left" | "right" {
-  if (value === "top" || value === "bottom" || value === "left" || value === "right") return value;
-  throw new Error(`${name} 必须是 top/bottom/left/right`);
-}
-
-function pointValue(value: unknown, name: string): { x: number; y: number } {
-  const point = value as { x?: unknown; y?: unknown };
-  if (typeof point?.x !== "number" || typeof point?.y !== "number") {
-    throw new Error(`${name} 必须包含 number 类型的 x/y`);
-  }
-  return { x: point.x, y: point.y };
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }

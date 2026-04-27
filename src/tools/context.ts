@@ -1,8 +1,16 @@
 import { ToolHandler } from "../types";
 import { makeShapeRef } from "./refs";
 import { pageNumberFromIndex, resolveSlide, slideTargetFromInput } from "./slideTarget";
+import { readThemePalette } from "./theme";
 
 export const getCurrentContext: ToolHandler = async (input) => {
+  const themeInfo = await readThemePalette().catch(() => ({
+    themePalette: null,
+    isDefaultTheme: true,
+    themeName: null,
+    slideWidth: null,
+    slideHeight: null,
+  }));
   try {
     return await PowerPoint.run(async (ctx) => {
       const pres = ctx.presentation;
@@ -45,6 +53,11 @@ export const getCurrentContext: ToolHandler = async (input) => {
       return JSON.stringify(
         {
           totalSlides: slideIds.length,
+          slideWidth: themeInfo.slideWidth,
+          slideHeight: themeInfo.slideHeight,
+          themePalette: themeInfo.themePalette,
+          isDefaultTheme: themeInfo.isDefaultTheme,
+          themeName: themeInfo.themeName,
           selectedSlideIds: currentSlideIds,
           selectedSlideIndexes: currentIndexes,
           selectedPageNumbers: currentPageNumbers,
@@ -108,6 +121,11 @@ export const listSlideShapes: ToolHandler = async (input) => {
     slideId: context.inspectedSlideId,
     slideIndex: context.inspectedSlideIndex,
     pageNumber: context.inspectedPageNumber,
+    slideWidth: context.slideWidth ?? null,
+    slideHeight: context.slideHeight ?? null,
+    themePalette: context.themePalette ?? null,
+    isDefaultTheme: context.isDefaultTheme ?? true,
+    themeName: context.themeName ?? null,
     shapeCount: shapes.length,
     shapes
   }, null, 2);

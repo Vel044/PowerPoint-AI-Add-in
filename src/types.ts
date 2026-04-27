@@ -13,7 +13,15 @@ export interface ToolResultBlock {
   content: string;
   is_error?: boolean;
 }
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
+export interface ImageBlock {
+  type: "image";
+  source: {
+    type: "base64";
+    media_type: "image/png";
+    data: string;
+  };
+}
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ImageBlock;
 
 export interface Message {
   role: Role;

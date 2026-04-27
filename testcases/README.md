@@ -14,7 +14,7 @@
 | 文件 | 场景 | 主要验证 |
 | --- | --- | --- |
 | [01-simple-flowchart.md](01-simple-flowchart.md) | 登录流程图 | `edit_slide_xml`、真实连接器、视觉验证 |
-| [02-call-chain.md](02-call-chain.md) | 函数调用链 | 复杂图优先结构化 `edit_slide_xml` |
+| [02-call-chain.md](02-call-chain.md) | 函数调用链 | 复杂图优先 Claude 风格 `edit_slide_xml({ code })` |
 | [03-architecture.md](03-architecture.md) | 系统架构图 | `edit_slide_xml` 树状/分层 |
 | [04-connect-shapes.md](04-connect-shapes.md) | 已有形状连线 | `connect_shapes` 贴边连接 |
 | [05-mixed-edit.md](05-mixed-edit.md) | 在已有图上加节点 | `add_geometric_shape`、`modify_shape`、`connect_shapes` |
@@ -44,7 +44,7 @@
 | `connect_shapes` | 04, 05 | manual-ppt | 真实连接器 |
 | `read_slide_text` | 09 | manual-ppt | 读取 `<a:p>` |
 | `edit_slide_text` | 09 | manual-ppt | 替换富文本 XML |
-| `edit_slide_xml` | 01, 02, 03, 07, 08, 09 | manual-ppt | 结构化改背景/连接器/shape XML，绘图优先走这个入口 |
+| `edit_slide_xml` | 01, 02, 03, 07, 08, 09 | manual-ppt | Claude 风格 `code:string`，普通绘图用 `pptx` helper，高级 patch 才直接编辑 slide1.xml |
 | `modify_shape` | 05, 06 | manual-ppt | 修改文字、位置、样式 |
 | `delete_shape` | 06 | manual-ppt | 指定页内删除 |
 | `review_slide` | 01, 06 | artifact | 截图留档到 `debug-artifacts/` |
@@ -71,7 +71,7 @@
 
 - **节点不重叠**：任意两个框边界不相交，除非 prompt 明确要求叠放。
 - **连接线贴边中点**：连接线端点指向框的上/下/左/右边中点，没有飞线。
-- **图形自由排版**：流程图、调用链、架构细节、泳道图优先用结构化 `edit_slide_xml`。
+- **图形自由排版**：流程图、调用链、架构细节、泳道图优先用 Claude 风格 `edit_slide_xml({ code })`，code 里优先调用 `pptx` helper。
 - **修改前先读上下文**：删除、修改、富文本读取前必须用 `list_slide_shapes` 或 `get_current_context` 确认目标。
 - **修改后必须验证**：绘图、图表、图标、连线后至少调用 `verify_slides`；视觉类任务再调用 `verify_slide_visual` 或 `review_slide`。
 - **调试目录不入 git**：`debug-artifacts/` 必须被 `.gitignore` 忽略。

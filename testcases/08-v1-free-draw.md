@@ -17,6 +17,6 @@
 
 ## 检查点
 
-- [ ] 复杂框图使用结构化 `edit_slide_xml`
+- [ ] 复杂框图使用 Claude 风格 `edit_slide_xml({ code })`，且 code 里使用 `pptx` helper 而不是大段 `createElementNS`
 - [ ] 节点不重叠，连接线方向清楚
 - [ ] `verify_slide_visual` 返回截图 artifact 路径

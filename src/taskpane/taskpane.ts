@@ -298,8 +298,10 @@ async function onSend() {
   addBubble("user", text);
 
   let contextInfo = "";
+  let slidesInfo = "";
   try {
     contextInfo = await TOOL_HANDLERS.get_current_context({}, { log: () => {} });
+    slidesInfo = await TOOL_HANDLERS.list_slides({}, { log: () => {} });
     if (runController.signal.aborted) throw new RequestCancelledError();
   } catch {
     if (runController.signal.aborted) {
@@ -310,16 +312,26 @@ async function onSend() {
     // ignore context fetch errors
   }
 
-  const fullMessage = contextInfo
-    ? `[当前上下文]\n${contextInfo}\n\n[用户消息]\n${text}`
-    : text;
+  let slideScreenshot: string | null = null;
+  try {
+    slideScreenshot = await PowerPoint.run(async (ctx) => {
+      const slide = ctx.presentation.getSelectedSlides().getItemAt(0);
+      const img = (slide as any).getImageAsBase64({ width: 640 });
+      await ctx.sync();
+      return typeof img.value === "string" ? img.value : null;
+    });
+  } catch {
+    // API 不支持时静默忽略
+  }
+
+  const userContent = buildUserContent(contextInfo, slidesInfo, text, slideScreenshot);
 
   let assistantBubble: HTMLElement | null = null;
   let assistantText = "";
 
   try {
     const modelRequest = getModelRequest();
-    const updated = await runAgent(fullMessage, history, {
+    const updated = await runAgent(userContent, history, {
       tools: TOOL_DEFINITIONS,
       handlers: TOOL_HANDLERS,
       tier: modelRequest.tier,
@@ -362,6 +374,80 @@ function cleanupAgentRun(controller: AbortController) {
   if (activeRunController === controller) {
     activeRunController = null;
     setAgentRunning(false);
+  }
+}
+
+function buildUserContent(
+  contextInfo: string,
+  slidesInfo: string,
+  userText: string,
+  slideScreenshot: string | null,
+): string | ContentBlock[] {
+  const context = parseJsonObject(contextInfo);
+  const slides = parseJsonArray(slidesInfo);
+  const textBlock = context
+    ? `${formatInitialState(context, slides)}\n\n${formatUserContext(context)}\n\n<user_message>\n${userText}\n</user_message>`
+    : `<user_message>\n${userText}\n</user_message>`;
+
+  if (!slideScreenshot) return textBlock;
+  return [
+    { type: "text", text: textBlock },
+    { type: "text", text: "以下是当前幻灯片的截图，请参考其布局、背景和主题色规划新内容：" },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: slideScreenshot } }
+  ];
+}
+
+function formatInitialState(context: Record<string, unknown>, slides: unknown[]): string {
+  const slidesMetadata = slides
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((slide) => ({
+      slideId: slide.id,
+      position: slide.pageNumber,
+      index: slide.index,
+    }));
+  return `<initial_state>\n${JSON.stringify({
+    slidesMetadata,
+    totalSlides: context.totalSlides,
+    slideWidth: context.slideWidth,
+    slideHeight: context.slideHeight,
+    themePalette: context.themePalette,
+    isDefaultTheme: context.isDefaultTheme,
+    themeName: context.themeName,
+  }, null, 2)}\n</initial_state>`;
+}
+
+function formatUserContext(context: Record<string, unknown>): string {
+  return `<user_context>\n${JSON.stringify({
+    selectedSlideIds: context.selectedSlideIds,
+    selectedSlideIndexes: context.selectedSlideIndexes,
+    selectedPageNumbers: context.selectedPageNumbers,
+    currentSlideId: context.currentSlideId,
+    currentSlideIndex: context.currentSlideIndex,
+    currentPageNumber: context.currentPageNumber,
+    inspectedSlideId: context.inspectedSlideId,
+    inspectedSlideIndex: context.inspectedSlideIndex,
+    inspectedPageNumber: context.inspectedPageNumber,
+    occupiedBounds: context.occupiedBounds,
+    allShapes: context.allShapes,
+    selectedShapes: context.selectedShapes,
+  }, null, 2)}\n</user_context>`;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = value ? JSON.parse(value) : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonArray(value: string): unknown[] {
+  try {
+    const parsed = value ? JSON.parse(value) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }
 
