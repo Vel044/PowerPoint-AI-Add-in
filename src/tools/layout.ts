@@ -65,10 +65,11 @@ interface ConnectorOptions {
   arrow?: "none" | "end";
   color?: string;
   thickness?: number;
+  dashStyle?: string;
   mode?: "direct" | "orthogonal";
 }
 
-interface ConnectorXmlPatch {
+export interface ConnectorXmlPatch {
   connectorShapeId: string;
   fromShapeId: string;
   fromSide: Side;
@@ -80,6 +81,7 @@ interface ConnectorXmlPatch {
   arrow: "none" | "end";
   color: string;
   thickness: number;
+  dashStyle?: string;
 }
 
 interface PendingConnectorXmlPatch extends Omit<ConnectorXmlPatch, "connectorShapeId"> {
@@ -97,6 +99,7 @@ function addConnectorPlaceholder(
   connectorType: "straight" | "elbow",
   color: string,
   thickness: number,
+  dashStyle?: string,
 ): PowerPoint.Shape | null {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -118,7 +121,7 @@ function addConnectorPlaceholder(
   shape.lineFormat.visible = true;
   shape.lineFormat.color = color;
   shape.lineFormat.weight = thickness;
-  shape.lineFormat.dashStyle = "Solid";
+  shape.lineFormat.dashStyle = normalizeDashStyle(dashStyle ?? "solid") as any;
   shape.lineFormat.style = "Single";
   shape.load("id");
   return shape;
@@ -149,8 +152,9 @@ export function drawConnectedLine(
   const connectorType: "straight" | "elbow" = options.mode === "direct" || isAxisAligned ? "straight" : "elbow";
   const color = options.color ?? CONNECTOR_COLOR;
   const thickness = options.thickness ?? CONNECTOR_THICKNESS;
+  const dashStyle = options.dashStyle;
   const arrow = options.arrow ?? "end";
-  const shape = addConnectorPlaceholder(slide, start, end, connectorType, color, thickness);
+  const shape = addConnectorPlaceholder(slide, start, end, connectorType, color, thickness, dashStyle);
 
   if (!shape) {
     return {
@@ -183,6 +187,7 @@ export function drawConnectedLine(
       arrow,
       color,
       thickness,
+      dashStyle,
     }],
   };
 }
@@ -200,6 +205,7 @@ export function resolveConnectorXmlPatches(results: ConnectorCreationResult[]): 
     arrow: patch.arrow,
     color: patch.color,
     thickness: patch.thickness,
+    dashStyle: patch.dashStyle,
   })));
 }
 
@@ -213,7 +219,7 @@ export async function applyConnectorXmlPatches(
   });
 }
 
-function patchConnectorXml(doc: Document, patch: ConnectorXmlPatch): void {
+export function patchConnectorXml(doc: Document, patch: ConnectorXmlPatch): void {
   const connector = findConnector(doc, patch.connectorShapeId);
   if (!connector) throw new Error(`slide XML 中未找到连接器 ${patch.connectorShapeId}`);
 
@@ -303,7 +309,7 @@ function setLine(doc: Document, spPr: Element, patch: ConnectorXmlPatch): void {
   solidFill.appendChild(srgbClr);
 
   const dash = doc.createElementNS(A_NS, "a:prstDash");
-  dash.setAttribute("val", "solid");
+  dash.setAttribute("val", normalizePresetDash(patch.dashStyle ?? "solid"));
 
   const headEnd = doc.createElementNS(A_NS, "a:headEnd");
   headEnd.setAttribute("type", "none");
@@ -318,6 +324,22 @@ function setLine(doc: Document, spPr: Element, patch: ConnectorXmlPatch): void {
   const miter = doc.createElementNS(A_NS, "a:miter");
   miter.setAttribute("lim", "800000");
   line.append(solidFill, dash, headEnd, tailEnd, miter);
+}
+
+function normalizeDashStyle(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "dash" || normalized === "dashed") return "Dash";
+  if (normalized === "dot" || normalized === "dotted") return "Dot";
+  if (normalized === "dashdot" || normalized === "dashDot") return "DashDot";
+  return "Solid";
+}
+
+function normalizePresetDash(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "dash" || normalized === "dashed") return "dash";
+  if (normalized === "dot" || normalized === "dotted") return "dot";
+  if (normalized === "dashdot" || normalized === "dashDot") return "dashDot";
+  return "solid";
 }
 
 function normalizeColor(color: string): string {

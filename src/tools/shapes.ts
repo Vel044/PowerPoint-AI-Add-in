@@ -1,5 +1,6 @@
 import { ToolHandler } from "../types";
 import { withOfficeErrorContext } from "./officeErrors";
+import { applyLineStyle, applyShapeStyle, lineStyleFromInput, shapeStyleFromInput } from "./shapeStyle";
 import { normalizeConnectorType, normalizeGeometricShapeType } from "./shapeTypes";
 import { Side, applyConnectorXmlPatches, drawConnectedLine, resolveConnectorXmlPatches } from "./layout";
 import { resolveSlide, slideTargetFromInput } from "./slideTarget";
@@ -13,6 +14,7 @@ export const addTextBox: ToolHandler = async (input) => {
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shape = slide.shapes.addTextBox(text, { left, top, width, height });
+    applyShapeStyle(shape, shapeStyleFromInput(input));
     shape.load("id");
     await ctx.sync();
     return `已在幻灯片 ${slide.id} 添加文本框 (id=${shape.id})`;
@@ -38,6 +40,7 @@ export const modifyShape: ToolHandler = async (input) => {
     if (typeof input.top === "number") target.top = input.top as number;
     if (typeof input.width === "number") target.width = input.width as number;
     if (typeof input.height === "number") target.height = input.height as number;
+    applyShapeStyle(target, shapeStyleFromInput(input));
     await ctx.sync();
     return `已更新幻灯片 ${slide.id} 上的形状 ${shapeId}`;
   });
@@ -61,6 +64,7 @@ export const addGeometricShape: ToolHandler = async (input) => {
     if (text) {
       shape.textFrame.textRange.text = text;
     }
+    applyShapeStyle(shape, shapeStyleFromInput(input));
     shape.load("id");
     try {
       await ctx.sync();
@@ -80,6 +84,13 @@ export const addLine: ToolHandler = async (input) => {
   return await PowerPoint.run(async (ctx) => {
     const slide = await resolveSlide(ctx, slideTargetFromInput(input));
     const shape = slide.shapes.addLine(lineType, { left, top, width, height });
+    applyLineStyle(shape, lineStyleFromInput(input));
+    if (input.arrow === "end") {
+      const lineFormat = shape.lineFormat as any;
+      lineFormat.endArrowheadStyle = "Triangle";
+      lineFormat.endArrowheadLength = "Medium";
+      lineFormat.endArrowheadWidth = "Medium";
+    }
     shape.load("id");
     try {
       await ctx.sync();
@@ -112,6 +123,7 @@ export const connectShapes: ToolHandler = async (input) => {
   const toSide = (input.toSide as Side) ?? "left";
   const mode = (input.mode as string) ?? "orthogonal";
   const arrow = ((input.arrow as string) ?? "end") === "none" ? "none" : "end";
+  const lineStyle = lineStyleFromInput(input);
   if (!fromShapeId || !toShapeId) throw new Error("缺少 fromShapeId 或 toShapeId");
 
   const result = await PowerPoint.run(async (ctx) => {
@@ -147,7 +159,13 @@ export const connectShapes: ToolHandler = async (input) => {
       toShapeId,
       shapes[toShapeId],
       toSide,
-      { arrow, mode: mode === "direct" ? "direct" : "orthogonal" },
+      {
+        arrow,
+        mode: mode === "direct" ? "direct" : "orthogonal",
+        color: lineStyle.color,
+        thickness: lineStyle.thickness,
+        dashStyle: lineStyle.dashStyle,
+      },
     );
     await ctx.sync();
     return {

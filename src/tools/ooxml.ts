@@ -3,6 +3,13 @@ import { withOfficeErrorContext } from "./officeErrors";
 import { resolveSlide, SlideTarget } from "./slideTarget";
 
 type SlideXmlMutator = (doc: Document) => void;
+type SlideXmlReader<T> = (doc: Document, info: SlideXmlInfo) => T | Promise<T>;
+
+export interface SlideXmlInfo {
+  slideId: string;
+  slideIndex: number;
+  pageNumber: number;
+}
 
 export interface SlideXmlEditResult {
   oldSlideId: string;
@@ -12,6 +19,24 @@ export interface SlideXmlEditResult {
 }
 
 const SLIDE_XML_PATH = "ppt/slides/slide1.xml";
+
+export async function readCurrentSlideXml<T>(target: SlideTarget, reader: SlideXmlReader<T>): Promise<T> {
+  return await PowerPoint.run(async (ctx) => {
+    const slide = await resolveSlide(ctx, target);
+    slide.load("id,index");
+    const exported = slide.exportAsBase64();
+    await syncWithContext(ctx, "导出目标幻灯片 exportAsBase64 失败");
+    if (typeof exported.value !== "string" || exported.value.length === 0) {
+      throw new Error("导出当前幻灯片失败：exportAsBase64 未返回有效 base64。请确认 Office 支持 PowerPointApi 1.8。");
+    }
+    const doc = await readSlideXmlFromBase64(exported.value);
+    return await reader(doc, {
+      slideId: slide.id,
+      slideIndex: slide.index,
+      pageNumber: slide.index + 1,
+    });
+  });
+}
 
 export async function editCurrentSlideXml(target: SlideTarget, mutator: SlideXmlMutator): Promise<SlideXmlEditResult> {
   return await PowerPoint.run(async (ctx) => {
@@ -85,13 +110,24 @@ async function patchSlideXml(base64: string, mutator: SlideXmlMutator): Promise<
   });
 }
 
-function parseSlideXml(xml: string): Document {
+async function readSlideXmlFromBase64(base64: string): Promise<Document> {
+  const zip = await JSZip.loadAsync(base64, { base64: true });
+  const entry = zip.file(SLIDE_XML_PATH);
+  if (!entry) throw new Error(`导出的单页 PPTX 中未找到 ${SLIDE_XML_PATH}`);
+  return parseSlideXml(await entry.async("string"));
+}
+
+export function parseSlideXml(xml: string): Document {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   const error = doc.getElementsByTagName("parsererror")[0];
   if (error) {
     throw new Error(`解析 slide XML 失败: ${error.textContent?.trim() ?? "unknown parser error"}`);
   }
   return doc;
+}
+
+export function serializeXmlElement(element: Element): string {
+  return new XMLSerializer().serializeToString(element);
 }
 
 function findInsertedSlide(

@@ -1,4 +1,5 @@
 import { ToolHandler } from "../types";
+import { makeShapeRef } from "./refs";
 import { pageNumberFromIndex, resolveSlide, slideTargetFromInput } from "./slideTarget";
 
 export const getCurrentContext: ToolHandler = async (input) => {
@@ -88,6 +89,76 @@ type ShapeInfo = {
   height: number | null;
 };
 
+export type { ShapeInfo };
+
+export const listSlideShapes: ToolHandler = async (input) => {
+  const raw = await getCurrentContext(input, { log: () => {} });
+  const context = JSON.parse(raw);
+  const shapes = (context.allShapes ?? []).map((shape: ShapeInfo) => ({
+    ref: shape.slideId && shape.id ? makeShapeRef(shape.slideId, shape.id) : null,
+    ...shape,
+    bounds: {
+      left: shape.left,
+      top: shape.top,
+      width: shape.width,
+      height: shape.height
+    }
+  }));
+  return JSON.stringify({
+    slideId: context.inspectedSlideId,
+    slideIndex: context.inspectedSlideIndex,
+    pageNumber: context.inspectedPageNumber,
+    shapeCount: shapes.length,
+    shapes
+  }, null, 2);
+};
+
+export const exportDeckOutline: ToolHandler = async (input) => {
+  const requestedSlides = input.slides;
+  const saveArtifact = input.saveArtifact !== false;
+  const outline = await PowerPoint.run(async (ctx) => {
+    const slides = ctx.presentation.slides;
+    slides.load("items/id,index");
+    await ctx.sync();
+    const requested = normalizeSlideSelection(requestedSlides, slides.items.length);
+    const pages = [];
+    for (const slide of slides.items) {
+      const pageNumber = slide.index + 1;
+      if (requested && !requested.has(pageNumber)) continue;
+      const shapes = await collectShapeInfos(ctx, slide.shapes);
+      const textItems = shapes
+        .filter((shape) => shape.text.trim())
+        .map((shape) => ({
+          shapeId: shape.id,
+          name: shape.name,
+          type: shape.type,
+          text: shape.text,
+          bounds: { left: shape.left, top: shape.top, width: shape.width, height: shape.height }
+        }));
+      pages.push({
+        slideId: slide.id,
+        slideIndex: slide.index,
+        pageNumber,
+        title: textItems[0]?.text ?? "",
+        textItems,
+        shapeCount: shapes.length,
+      });
+    }
+    return {
+      exportedAt: new Date().toISOString(),
+      slideCount: slides.items.length,
+      pages
+    };
+  });
+
+  let artifactText = "";
+  if (saveArtifact) {
+    const artifact = await saveJsonArtifact("deck-outline", "deck-outline.json", outline);
+    if (artifact?.path) artifactText = `\n已保存: ${artifact.path}`;
+  }
+  return `${JSON.stringify(outline, null, 2)}${artifactText}`;
+};
+
 async function collectSelectedShapeInfos(ctx: PowerPoint.RequestContext, pres: PowerPoint.Presentation): Promise<ShapeInfo[]> {
   try {
     const selectedShapes = pres.getSelectedShapes();
@@ -97,7 +168,7 @@ async function collectSelectedShapeInfos(ctx: PowerPoint.RequestContext, pres: P
   }
 }
 
-async function collectShapeInfos(
+export async function collectShapeInfos(
   ctx: PowerPoint.RequestContext,
   collection: { load: (propertyNames?: string | string[]) => unknown; items: PowerPoint.Shape[] }
 ): Promise<ShapeInfo[]> {
@@ -218,3 +289,41 @@ export const listSlides: ToolHandler = async () => {
     return JSON.stringify(out);
   });
 };
+
+function normalizeSlideSelection(value: unknown, slideCount: number): Set<number> | null {
+  if (value === undefined || value === null || value === "all") return null;
+  if (!Array.isArray(value)) return null;
+  const pages = value
+    .filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+    .map((item) => Math.trunc(item))
+    .filter((item) => item >= 1 && item <= slideCount);
+  return new Set(pages);
+}
+
+async function saveJsonArtifact(kind: string, filename: string, data: unknown): Promise<{ ok: boolean; path?: string } | null> {
+  try {
+    const json = JSON.stringify(data, null, 2);
+    const res = await fetch("https://localhost:3001/__debug-artifact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind,
+        filename,
+        mime: "application/json",
+        base64: base64EncodeUtf8(json),
+        metadata: { tool: "export_deck_outline", timestamp: new Date().toISOString() }
+      })
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function base64EncodeUtf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary);
+}
