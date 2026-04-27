@@ -27,7 +27,7 @@
 删除 第三页SQL 的形状。
 ```
 
-预期：先 `get_current_context` 确认当前页 `allShapes` 中存在该形状，再 `delete_shape({ slideId, shapeId })`；不会跨页搜索同名/同 id 形状。
+预期：先 `get_current_context({ pageNumber: 3 })` 或 `list_slide_shapes({ pageNumber: 3 })` 查看第三页，再 `delete_shape({ pageNumber: 3, shapeId })`；不会跨页搜索同名/同 id 形状。
 
 ### C2. 视觉审查截图留档
 
@@ -49,9 +49,38 @@
 
 预期：`add_slide` / `delete_slide`。
 
+### E. 复制页与大纲
+
+```
+复制第 2 页，然后导出整份 PPT 的文字大纲。
+```
+
+预期：`duplicate_slide({ pageNumber: 2 })`，再 `export_deck_outline`。大纲结果包含每页 `pageNumber/slideId/textShapes`。
+
+### F. TODO 进度
+
+```
+把任务拆成三步显示：读取现状、修改图形、验证效果。第一步标记已完成，第二步进行中，第三步待办。
+```
+
+预期：调用 `todo_write`，返回完整 todos。
+
+### G. 白名单 Office.js 动作
+
+先用 `list_slide_shapes` 找到一个形状，然后：
+
+```
+把刚才那个形状向右移动 20pt，并置于顶层。
+```
+
+预期：先 `list_slide_shapes`，再 `execute_office_js({ actions:[{type:"moveShape"...},{type:"bringToFront"...}] })`。不得传任意 `code` 字符串。
+
 ## 检查点
 
 - [ ] 所有原工具正常工作
 - [ ] AI 不会在非绘图场景误调用 `create_diagram`
 - [ ] AI 不会在简单"画个框"场景误调用 `create_diagram`（应当用 `add_geometric_shape`）
 - [ ] `get_current_context` 返回当前页 `allShapes` 和 `occupiedBounds`
+- [ ] `list_slides` 返回 `index/pageNumber/id`
+- [ ] `duplicate_slide` 后新页能被后续工具定位
+- [ ] `execute_office_js` 只接受白名单 actions

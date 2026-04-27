@@ -24,7 +24,7 @@ PowerPoint AI Add-in 是一个运行在 PowerPoint 桌面端任务窗格里的 A
 
 ## 项目特点
 
-- **不是聊天 Demo**：模型会真实调用 `get_current_context`、`delete_shape`、`modify_shape`、`create_diagram`、`connect_shapes` 等工具修改当前演示文稿。
+- **skill众多**：模型会真实调用 `get_current_context`、`delete_shape`、`modify_shape`、`create_diagram`、`connect_shapes` 等工具修改当前演示文稿。
 - **Provider 可切换**：支持 `z.ai`、`MiniMax`、`Anthropic 官方` 等 Anthropic 兼容后端，并允许在任务窗格中切换。
 - **Agent 循环可暂停**：发送后按钮会切换成“暂停”，可以中断当前模型请求，并在当前工具返回后停止后续轮次。
 - **支持任意页读取上下文**：模型可以按 `slideId`、`slideIndex` 或 `pageNumber` 静默查看目标页形状信息，而不要求用户先切页。
@@ -78,16 +78,16 @@ npm run dev
 
 ## 目录说明
 
-| 路径 | 说明 |
-| --- | --- |
-| `manifest.xml` | Office Add-in 清单 |
-| `src/taskpane/` | 任务窗格 UI、聊天面板、设置页、历史记录 |
-| `src/anthropic/` | `/v1/messages` 客户端、取消控制、agent loop |
-| `src/tools/` | PowerPoint 工具注册表与 Office.js / XML 编辑实现 |
-| `config/providers.json` | 当前 Provider 配置 |
-| `config/providers.example.json` | Provider 配置示例 |
-| `debug-artifacts/` | `review_slide` 生成的调试截图与元数据（已加入 `.gitignore`） |
-| `testcases/` | 手工回归与工具用例文档 |
+| 路径                            | 说明                                                         |
+| ------------------------------- | ------------------------------------------------------------ |
+| `manifest.xml`                  | Office Add-in 清单                                           |
+| `src/taskpane/`                 | 任务窗格 UI、聊天面板、设置页、历史记录                      |
+| `src/anthropic/`                | `/v1/messages` 客户端、取消控制、agent loop                  |
+| `src/tools/`                    | PowerPoint 工具注册表与 Office.js / XML 编辑实现             |
+| `config/providers.json`         | 当前 Provider 配置                                           |
+| `config/providers.example.json` | Provider 配置示例                                            |
+| `debug-artifacts/`              | `review_slide` 生成的调试截图与元数据（已加入 `.gitignore`） |
+| `testcases/`                    | 手工回归与工具用例文档                                       |
 
 ## 核心能力说明
 

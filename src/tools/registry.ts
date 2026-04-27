@@ -8,6 +8,21 @@ import { editSlideText, editSlideXml, readSlideText } from "./richText";
 import { reviewSlide } from "./review";
 import { todoWrite } from "./todo";
 import { verifySlides } from "./verify";
+import {
+  copyImageBetweenSlides,
+  createSkill,
+  editSlideChart,
+  editSlideMaster,
+  executeOfficeJs,
+  insertIcon,
+  readSkill,
+  searchIcons,
+  storeBlob,
+  unsupportedBridgeTool,
+  updateInstructions,
+  updateSetting,
+  webSearch
+} from "./remainingTools";
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -428,6 +443,273 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: "execute_office_js",
+    description: "执行受控 Office.js 白名单动作，不接受任意代码字符串。支持 moveShape、resizeShape、setShapeStyle、bringToFront、sendToBack、selectSlide、selectShapes。用于细调位置、尺寸、样式、层级和选择状态。",
+    input_schema: {
+      type: "object",
+      properties: {
+        actions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["moveShape", "resizeShape", "setShapeStyle", "bringToFront", "sendToBack", "selectSlide", "selectShapes"] },
+              slideId: { type: "string" },
+              slideIndex: { type: "number" },
+              pageNumber: { type: "number" },
+              shapeId: { type: "string" },
+              shapeIds: { type: "array", items: { type: "string" } },
+              left: { type: "number" },
+              top: { type: "number" },
+              width: { type: "number" },
+              height: { type: "number" },
+              fillColor: { type: "string" },
+              lineColor: { type: "string" },
+              lineWeight: { type: "number" },
+              textColor: { type: "string" },
+              fontSize: { type: "number" },
+              bold: { type: "boolean" }
+            },
+            required: ["type"]
+          }
+        }
+      },
+      required: ["actions"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "edit_slide_chart",
+    description: "在目标页生成可编辑的 shape-based 图表。V1 支持 bar、line、pie 三类，参数为 title/categories/series/left/top/width/height。生成的是普通形状，后续可移动和修改；不是 native chart package。",
+    input_schema: {
+      type: "object",
+      properties: {
+        slideId: { type: "string" },
+        slideIndex: { type: "number" },
+        pageNumber: { type: "number" },
+        chartType: { type: "string", enum: ["bar", "line", "pie"] },
+        type: { type: "string", enum: ["bar", "line", "pie"] },
+        title: { type: "string" },
+        categories: { type: "array", items: { type: "string" } },
+        series: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              values: { type: "array", items: { type: "number" } }
+            },
+            required: ["values"]
+          }
+        },
+        left: { type: "number" },
+        top: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" }
+      },
+      required: ["categories", "series"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "edit_slide_master",
+    description: "受控设置当前页背景或本地绘图默认偏好，不开放任意 master XML。支持 backgroundColor、fontFamily、themeColors、decorations。backgroundColor 会通过单页 XML 替换，因此可能返回新 slideId。",
+    input_schema: {
+      type: "object",
+      properties: {
+        slideId: { type: "string" },
+        slideIndex: { type: "number" },
+        pageNumber: { type: "number" },
+        backgroundColor: { type: "string" },
+        fontFamily: { type: "string" },
+        themeColors: { type: "object" },
+        decorations: { type: "array", items: { type: "object" } }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "store_blob",
+    description: "把 base64/url/text 资源存入本地 IndexedDB，返回 blobName/mime/size。用于后续资源复用；不会上传远端。",
+    input_schema: {
+      type: "object",
+      properties: {
+        blobName: { type: "string" },
+        name: { type: "string" },
+        source: { type: "string", enum: ["base64", "url", "text"] },
+        base64: { type: "string" },
+        url: { type: "string" },
+        content: { type: "string" },
+        mimeType: { type: "string" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "copy_image_between_slides",
+    description: "复制图片形状到另一页。来源必须是可导出为图片的 shape；内部使用 getImageAsBase64 + addImage，支持目标 left/top/width/height。",
+    input_schema: {
+      type: "object",
+      properties: {
+        fromSlideId: { type: "string" },
+        fromSlideIndex: { type: "number" },
+        fromPageNumber: { type: "number" },
+        from_slide_id: { type: "string" },
+        from_slide_index: { type: "number" },
+        from_page_number: { type: "number" },
+        fromShapeId: { type: "string" },
+        from_shape_id: { type: "string" },
+        toSlideId: { type: "string" },
+        toSlideIndex: { type: "number" },
+        toPageNumber: { type: "number" },
+        to_slide_id: { type: "string" },
+        to_slide_index: { type: "number" },
+        to_page_number: { type: "number" },
+        left: { type: "number" },
+        top: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" }
+      },
+      required: ["fromShapeId"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "search_icons",
+    description: "搜索内置小型 SVG 图标库，返回 icon_id、描述和匹配度。第一版不接微软远端图标服务。插入前应先调用此工具。",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        top: { type: "number" }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "insert_icon",
+    description: "把 search_icons 返回的内置 SVG 图标插入目标页，支持颜色、位置、尺寸和 description。目标页可用 slideId、slideIndex 或 pageNumber 指定。",
+    input_schema: {
+      type: "object",
+      properties: {
+        iconId: { type: "string" },
+        icon_id: { type: "string" },
+        slideId: { type: "string" },
+        slideIndex: { type: "number" },
+        pageNumber: { type: "number" },
+        x: { type: "number" },
+        y: { type: "number" },
+        left: { type: "number" },
+        top: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        color: { type: "string" },
+        description: { type: "string" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "web_search",
+    description: "通过本地 dev server 的 __web-search endpoint 做轻量搜索，返回标题、链接、摘要。不可用时返回明确错误，不假装联网成功。",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        top: { type: "number" }
+      },
+      required: ["query"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "update_instructions",
+    description: "用查找替换方式修改本地长期偏好，保存到 localStorage 并拼接进后续 Agent system prompt。oldText 为空表示追加。",
+    input_schema: {
+      type: "object",
+      properties: {
+        operations: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              oldText: { type: "string" },
+              newText: { type: "string" },
+              old_text: { type: "string" },
+              new_text: { type: "string" }
+            }
+          }
+        }
+      },
+      required: ["operations"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "update_setting",
+    description: "读取或更新本地工具设置，如 web_search、review_required、debug_artifacts。传 value 时写入；不传 value 时读取当前值。",
+    input_schema: {
+      type: "object",
+      properties: {
+        setting: { type: "string" },
+        value: { type: "boolean" }
+      },
+      required: ["setting"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "read_skill",
+    description: "读取仓库 skills/<skillName>.md 的技能文件。仅读取本地仓库技能，不访问远端技能市场。",
+    input_schema: {
+      type: "object",
+      properties: {
+        skillName: { type: "string" },
+        skill_name: { type: "string" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "create_skill",
+    description: "在仓库 skills/ 下创建一个 SKILL 草稿 Markdown 文件，返回文件路径。",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        description: { type: "string" },
+        instructions: { type: "string" }
+      },
+      required: ["name", "description", "instructions"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_connected_agents",
+    description: "unsupported：当前本地 add-in 未配置多 Agent/MCP 桥接协议。调用会返回明确不可用说明。",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "send_message",
+    description: "unsupported：当前本地 add-in 未配置多 Agent/MCP 桥接协议。调用会返回明确不可用说明。",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_id: { type: "string" },
+        message: { type: "string" }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "refresh_mcp_connectors",
+    description: "unsupported：当前本地 add-in 未配置 MCP 连接器刷新协议。调用会返回明确不可用说明。",
+    input_schema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
     name: "todo_write",
     description: "创建或更新 Agent 任务列表。每次调用都是全量替换，结果会显示在对话里的工具结果中。",
     input_schema: {
@@ -473,5 +755,20 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   review_slide: reviewSlide,
   verify_slide_visual: reviewSlide,
   verify_slides: verifySlides,
+  execute_office_js: executeOfficeJs,
+  edit_slide_chart: editSlideChart,
+  edit_slide_master: editSlideMaster,
+  store_blob: storeBlob,
+  copy_image_between_slides: copyImageBetweenSlides,
+  search_icons: searchIcons,
+  insert_icon: insertIcon,
+  web_search: webSearch,
+  update_instructions: updateInstructions,
+  update_setting: updateSetting,
+  read_skill: readSkill,
+  create_skill: createSkill,
+  get_connected_agents: unsupportedBridgeTool("get_connected_agents"),
+  send_message: unsupportedBridgeTool("send_message"),
+  refresh_mcp_connectors: unsupportedBridgeTool("refresh_mcp_connectors"),
   todo_write: todoWrite
 };

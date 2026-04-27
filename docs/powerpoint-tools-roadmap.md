@@ -8,6 +8,7 @@
 | --- | --- |
 | `existing` | 当前已有能力，可能需要改名或补参数 |
 | `v1` | 第一版要落地的核心工具 |
+| `v2` | 第二批本地可用工具，已注册并可手测 |
 | `later` | 后续增强 |
 | `deferred` | 暂缓，不做假实现 |
 
@@ -39,9 +40,9 @@
 | 工具 | 状态 | 说明 |
 | --- | --- | --- |
 | `edit_slide_xml` | v1 | 结构化 OOXML 操作，不开放任意代码字符串 |
-| `execute_office_js` | later | 只做白名单 Office.js 动作，不开放任意代码 |
-| `edit_slide_chart` | later | 插入或修改基础图表 |
-| `edit_slide_master` | later | 受控修改主题、背景、字体、装饰元素 |
+| `execute_office_js` | v2 | 白名单 Office.js 动作，不开放任意代码 |
+| `edit_slide_chart` | v2 | 插入 shape-based 基础图表 |
+| `edit_slide_master` | v2 | 受控修改背景、字体偏好、主题色、装饰元素 |
 
 ## 验证与调试
 
@@ -64,20 +65,28 @@
 
 | 工具 | 状态 | 说明 |
 | --- | --- | --- |
-| `store_blob` | later | 保存 base64/file/url 资源供后续插入 |
-| `copy_image_between_slides` | later | 跨页复制图片和关系 |
-| `search_icons` | later | 搜索内置图标索引 |
-| `insert_icon` | later | 插入 SVG/图片图标 |
+| `store_blob` | v2 | 保存 base64/url/text 资源到本地 IndexedDB |
+| `copy_image_between_slides` | v2 | 用 `getImageAsBase64` + `addImage` 跨页复制图片 |
+| `search_icons` | v2 | 搜索内置 SVG 图标索引 |
+| `insert_icon` | v2 | 插入内置 SVG 图标，可改颜色和尺寸 |
 
 ## 偏好、技能、多 Agent
 
 | 工具 | 状态 | 说明 |
 | --- | --- | --- |
-| `web_search` | later | 联网搜索并返回来源 |
-| `update_instructions` | later | 保存长期偏好 |
-| `update_setting` | later | 开关功能设置 |
-| `read_skill` | later | 读取本地技能文件 |
-| `create_skill` | later | 生成技能草稿 |
+| `web_search` | v2 | 通过本地 dev server endpoint 轻量搜索 |
+| `update_instructions` | v2 | 保存长期偏好到 localStorage，并拼接进 system prompt |
+| `update_setting` | v2 | 管理本地功能设置 |
+| `read_skill` | v2 | 读取仓库 `skills/*.md` |
+| `create_skill` | v2 | 在仓库 `skills/` 生成技能草稿 |
 | `get_connected_agents` | deferred | 需要外部多 Agent 协议 |
 | `send_message` | deferred | 需要外部多 Agent 协议 |
 | `refresh_mcp_connectors` | deferred | 需要外部连接器协议 |
+
+## 第二批实现约束
+
+- `execute_office_js` 只接受结构化 `actions[]`，不暴露任意 `code:string`。
+- `edit_slide_chart` 第一版生成普通 shape-based 图表，优先可编辑和稳定，后续再升级为 native chart package。
+- `edit_slide_master` 不开放任意 master XML，只做当前页背景和本地默认偏好。
+- 图标库使用内置 SVG，不接微软远端图标服务。
+- 多 Agent/MCP 类工具注册为明确 unsupported，避免模型误以为已经具备跨 Office 协作协议。

@@ -1,4 +1,5 @@
 import { ToolHandler } from "../types";
+import { withOfficeErrorContext } from "./officeErrors";
 import { applyShapeStyle, shapeStyleFromInput } from "./shapeStyle";
 import { normalizeGeometricShapeType } from "./shapeTypes";
 import {
@@ -89,7 +90,11 @@ export const drawSlideShapes: ToolHandler = async (input) => {
       idMap[id] = "";
     }
 
-    await ctx.sync();
+    try {
+      await ctx.sync();
+    } catch (error) {
+      throw withOfficeErrorContext(error, "draw_slide_shapes 创建形状或应用样式失败，请检查颜色、shapeType、尺寸等参数");
+    }
     let createdIndex = 0;
     if (title && typeof title.text === "string") {
       const titleId = typeof title.id === "string" && title.id ? title.id : "__title";
@@ -135,7 +140,11 @@ export const drawSlideShapes: ToolHandler = async (input) => {
       connectorResults.push(drawResult);
       connectorLogs.push(`${from}.${fromSide}->${to}.${toSide}`);
     }
-    await ctx.sync();
+    try {
+      await ctx.sync();
+    } catch (error) {
+      throw withOfficeErrorContext(error, "draw_slide_shapes 创建连接器占位线失败，请检查 connector sides 和线条样式");
+    }
 
     return {
       slideId: slide.id,

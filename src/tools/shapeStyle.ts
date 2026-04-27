@@ -34,10 +34,15 @@ export function lineStyleFromInput(input: Record<string, unknown>): LineStyle {
 
 export function applyShapeStyle(shape: PowerPoint.Shape, style: ShapeStyle): void {
   const anyShape = shape as any;
-  if (style.fillColor && anyShape.fill?.setSolidColor) {
+  if (style.fillColor && isTransparentColor(style.fillColor) && anyShape.fill) {
+    anyShape.fill.transparency = 1;
+  } else if (style.fillColor && anyShape.fill?.setSolidColor) {
     anyShape.fill.setSolidColor(style.fillColor);
+    anyShape.fill.transparency = 0;
   }
-  if (style.lineColor) {
+  if (style.lineColor && isTransparentColor(style.lineColor)) {
+    shape.lineFormat.visible = false;
+  } else if (style.lineColor) {
     shape.lineFormat.visible = true;
     shape.lineFormat.color = style.lineColor;
   }
@@ -47,10 +52,15 @@ export function applyShapeStyle(shape: PowerPoint.Shape, style: ShapeStyle): voi
   }
   const font = anyShape.textFrame?.textRange?.font;
   if (font) {
-    if (style.textColor) font.color = style.textColor;
+    if (style.textColor && !isTransparentColor(style.textColor)) font.color = style.textColor;
     if (typeof style.fontSize === "number") font.size = style.fontSize;
     if (typeof style.bold === "boolean") font.bold = style.bold;
   }
+}
+
+function isTransparentColor(value: string): boolean {
+  const normalized = value.trim().toLowerCase().replace(/[\s_-]/g, "");
+  return normalized === "transparent" || normalized === "none" || normalized === "nofill";
 }
 
 export function applyLineStyle(shape: PowerPoint.Shape, style: LineStyle): void {
