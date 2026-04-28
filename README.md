@@ -1,6 +1,55 @@
 # PowerPoint AI Add-in
 
-PowerPoint AI Add-in 是一个运行在 PowerPoint 桌面端任务窗格里的 AI 助手。它通过 Anthropic 兼容接口驱动模型，并把模型的 `tool_use` 结果真正落到当前演示文稿里，例如读取上下文、增删改形状、批量生成流程图，以及修正连接器。
+**一句话：在 PowerPoint 任务窗格里塞进一个真正会改 PPT 的 AI 助手。**
+
+不是截图、不是导出 HTML、不是另开一个画布，而是直接在你当前打开的演示文稿里增删改形状、画流程图、连连接器、画图表。模型通过 Anthropic 兼容 API 的 `tool_use` 循环驱动 Office.js 与单页 OOXML 修正链路落地每一步操作。
+
+## 它能做什么
+
+| 能力               | 示例                                                                       |
+| ------------------ | -------------------------------------------------------------------------- |
+| **画流程图**       | 一句话生成登录、审批、状态机等流程，自动布局、连线、判断分支               |
+| **画系统架构图**   | 前端 → 网关 → 多服务 → 数据库的层级图，自动配色与对齐                      |
+| **画函数调用链**   | 给一段代码或描述，输出多分支调用链路图，含数据流标注                       |
+| **生成图表**       | 季度营收/成本对比柱状图、趋势图等结构化数据可视化                          |
+| **批量改样式**     | 选中形状后让 AI 统一描边、填色、字号，或按语义自动套预设主题               |
+| **审查与截图回放** | `review_slide` 自动截图当前页并保存元数据，便于回放模型“看到”了什么       |
+
+### 一句 prompt 的实际产出
+
+<table>
+  <tr>
+    <td align="center"><b>登录流程图（默认蓝）</b></td>
+    <td align="center"><b>登录流程图（语义配色）</b></td>
+  </tr>
+  <tr>
+    <td><img src="image/flowchart-login-simple.png" alt="登录流程图 - 简洁版"></td>
+    <td><img src="image/flowchart-login-styled.png" alt="登录流程图 - 语义配色版"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>系统架构图</b></td>
+    <td align="center"><b>季度营收柱状图</b></td>
+  </tr>
+  <tr>
+    <td><img src="image/diagram-system-architecture.png" alt="系统架构图"></td>
+    <td><img src="image/chart-quarterly-revenue.png" alt="季度营收柱状图"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><b>函数调用链图（多分支 + 数据流标注）</b></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="image/diagram-call-chain.png" alt="函数调用链图"></td>
+  </tr>
+</table>
+
+## 相比直接复制 ChatGPT/Claude 输出，优势在哪
+
+- **真正落到当前 PPT**，不是图片不是导出文件，可继续在 PowerPoint 里手动微调每一个形状
+- **形状可编辑**，连接器是 PowerPoint 原生连接器（不是位图），改节点位置时连线会跟着走
+- **支持读取当前上下文**：模型能按 `slideId` / `slideIndex` 静默读取任意页的形状信息，不用先切到那一页
+- **支持中途暂停**：Agent 多轮 tool_use 时随时打断，已经画的不会丢
+- **专门处理过连接器**：对原生连接器行为不稳定的场景，会走单页导出 + XML 修正链路兜底
+- **多 Provider 切换**：z.ai / MiniMax / Anthropic 官方 任意切，token 写本地 localStorage
 
 ## 前排提示
 
