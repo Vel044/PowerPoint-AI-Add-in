@@ -4,6 +4,12 @@
 
 不是截图、不是导出 HTML、不是另开一个画布，而是直接在你当前打开的演示文稿里增删改形状、画流程图、连连接器、画图表。模型通过 Anthropic 兼容 API 的 `tool_use` 循环驱动 Office.js 与单页 OOXML 修正链路落地每一步操作。
 
+<p align="center">
+  <img src="image/taskpane-ui.png" alt="PowerPoint 任务窗格 - AI 助手实际界面" width="360">
+</p>
+
+<p align="center"><i>右侧任务窗格直接挂在 PowerPoint 里，自动感知"当前选中第几页 / 几个形状"作为上下文。</i></p>
+
 ## 它能做什么
 
 | 能力               | 示例                                                                       |
