@@ -4,7 +4,7 @@ PowerPoint AI Add-in 是一个运行在 PowerPoint 桌面端任务窗格里的 A
 
 ## 前排提示
 
-- 当前主要面向 **Mac 桌面版 PowerPoint** 的本地开发与调试流程。
+- 支持 **Mac 和 Windows 桌面版 PowerPoint**，开发流程相同。
 - 图形工具依赖 Office.js，必须从 PowerPoint 功能区打开任务窗格，直接在浏览器访问 `https://localhost:3000` 只能调 UI，不能真正改 PPT。
 - 连接器相关能力除了 Office.js，还会用到单页 `exportAsBase64()` + XML 修正链路，因此目标环境需要支持相应的 PowerPoint API。
 
@@ -46,7 +46,11 @@ cp config/providers.example.json config/providers.json
 ### 2. 启动本地环境
 
 ```bash
+# Mac/Linux
 lsof -ti:3001 | xargs kill -9
+# Windows（PowerShell）
+# Get-Process -Id (Get-NetTCPConnection -LocalPort 3001).OwningProcess | Stop-Process
+
 npm run sideload
 npm run dev
 ```
@@ -55,7 +59,7 @@ npm run dev
 
 ### 3. 常用交互
 
-- `Cmd + Enter`：发送消息
+- `Cmd + Enter`（Mac）/ `Ctrl + Enter`（Windows）：发送消息
 - 运行中点击“暂停”：停止当前 Agent 后续轮次
 - “刷新上下文”：直接读取当前 PowerPoint 选择状态
 - Provider / 模型选择：写入 `localStorage`，优先级高于配置文件默认值
